@@ -58,7 +58,7 @@
 
 ### 依赖
 
-- C++17 或以上
+- C++20 或以上
 - Boost 库（主要用到 Boost.Asio、Boost.Lockfree 等）
 - CMake 或 Visual Studio（推荐使用 VS 工程文件 `AsioCoroutine.vcxproj`）
 
