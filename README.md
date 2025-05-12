@@ -1,4 +1,4 @@
-# AsioCoroutineServer
+# AsioCoroutine
 
 ## 项目简介
 
@@ -20,7 +20,7 @@
          |
          v
 +-------------------+
-|   CServer (主控)  |
+|   AsioCoroutine   |
 +--------+----------+
          |
          v
@@ -60,18 +60,18 @@
 
 - C++17 或以上
 - Boost 库（主要用到 Boost.Asio、Boost.Lockfree 等）
-- CMake 或 Visual Studio（推荐使用 VS 工程文件 `AsioCoroutineServer.vcxproj`）
+- CMake 或 Visual Studio（推荐使用 VS 工程文件 `AsioCoroutine.vcxproj`）
 
 ### 编译步骤
 
 1. 安装 Boost 库，并配置好开发环境。
-2. 使用 Visual Studio 打开 `ChatServer.vcxproj` 工程文件，编译生成可执行文件。
+2. 使用 Visual Studio 打开 `AsioCoroutine.vcxproj` 工程文件，编译生成可执行文件。
 3. 或者使用 CMake 自行配置编译（需自行编写 CMakeLists.txt）。
 
 ### 运行
 
 1. 配置 `config.ini` 文件，设置服务器参数。
-2. 运行编译生成的 `AsioCoroutineServer.exe`。
+2. 运行编译生成的 `AsioCoroutine.exe`。
 
 ## 主要模块说明
 
