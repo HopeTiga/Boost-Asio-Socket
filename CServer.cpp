@@ -3,34 +3,16 @@
 #include "LogicSystem.h"
 
 
-//tcp::v4()表示接收的ip范围,port代表地址;
+//tcp::v4()琛ㄧず鎺ユ敹鐨刬p鑼冨洿,port浠ｈ〃鍦板潃;
 CServer::CServer(boost::asio::io_context& ioContext, unsigned short& port)
 	:c_ioContext(ioContext),c_accept(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port)){
 
-	std::cout << "The ChatServer is start in "<< port << std::endl;
+	std::cout << "The AsioCoroutine is start in "<< port << std::endl;
 
 	LogicSystem::getInstance()->initializeThreads();
 
 	startAccept();
 }
-
-
-void CServer::ClearSession(std::string sessionId) {
-
-	if (sessionMap.find(sessionId) != sessionMap.end()) {
-		
-		UserMgr::getInstance()->removeSession(sessionMap[sessionId]->getUserId());
-
-	}
-
-	{
-		std::lock_guard<std::mutex> guard(mutexs);
-
-		sessionMap.erase(sessionId);
-
-	}
-}
-
 
 void CServer::startAccept() {
 
