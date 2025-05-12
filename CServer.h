@@ -12,18 +12,15 @@ public:
 
 	CServer(boost::asio::io_context &ioContext,unsigned short& port);
 
-	void ClearSession(std::string uuid);
-
-
 private:
 
 	void startAccept();
 
-	//½ÓÊÕ¶Ô¶ËµÄÁ´½Ó;
+	//æ¥æ”¶å¯¹ç«¯çš„é“¾æ¥;
 	boost::asio::ip::tcp::acceptor c_accept;
-	//ÉÏÏÂÎÄ
+	//ä¸Šä¸‹æ–‡
 	boost::asio::io_context& c_ioContext;
-	//socket½ÓÊÕ¶Ô¶ËĞÅÏ¢;
+	//socketæ¥æ”¶å¯¹ç«¯ä¿¡æ¯;
 
 	std::map<std::string, std::shared_ptr<CSession>> sessionMap;
 
