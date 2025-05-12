@@ -9,11 +9,9 @@ int main()
 {
 	ConfigMgr& config = ConfigMgr::Inst();
 
-	std::string host = config["selfServer"]["Host"];
+	std::string host = config["SelfServer"]["Host"];
 
-	std::string portStr = config["selfServer"]["Port"];
-
-	std::string url = "setLoginCount";
+	std::string portStr = config["SelfServer"]["Port"];
 
 	try {
 
@@ -34,6 +32,20 @@ int main()
 			ioContext.stop();
 
 			});
+
+
+		// 添加启动LOGO
+		std::cout << R"(
+             _____  _____  ____    _____  ____   _____    ____   _    _  _______  _____  _   _  ______ 
+     /\     / ____||_   _|/ __ \  / ____|/ __ \ |  __ \  / __ \ | |  | ||__   __||_   _|| \ | ||  ____|
+    /  \   | (___    | | | |  | || |    | |  | || |__) || |  | || |  | |   | |     | |  |  \| || |__   
+   / /\ \   \___ \   | | | |  | || |    | |  | ||  _  / | |  | || |  | |   | |     | |  | . ` ||  __|  
+  / ____ \  ____) | _| |_| |__| || |____| |__| || | \ \ | |__| || |__| |   | |    _| |_ | |\  || |____ 
+ /_/    \_\|_____/ |_____|\____/  \_____|\____/ |_|  \_\ \____/  \____/    |_|   |_____||_| \_||______|                                                                                                                                                                                               
+    )" << std::endl;
+		// ... existing code ...
+
+		std::cout << "The AsioCoroutine is start in " << port << std::endl;
 
 		CServer server(ioContexts, port);
 

@@ -1,18 +1,16 @@
 #include "CServer.h"
-#include "UserMgr.h"
 #include "LogicSystem.h"
 
 
-//tcp::v4()琛ㄧず鎺ユ敹鐨刬p鑼冨洿,port浠ｈ〃鍦板潃;
+//tcp::v4()表示接收的ip范围,port代表地址;
 CServer::CServer(boost::asio::io_context& ioContext, unsigned short& port)
 	:c_ioContext(ioContext),c_accept(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port)){
-
-	std::cout << "The AsioCoroutine is start in "<< port << std::endl;
 
 	LogicSystem::getInstance()->initializeThreads();
 
 	startAccept();
 }
+
 
 void CServer::startAccept() {
 

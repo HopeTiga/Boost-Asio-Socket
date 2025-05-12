@@ -330,7 +330,6 @@ void CSession::send(std::string msg, short msgid) {
 void CSession::handleError(const boost::system::error_code& error, const std::string& context) {
 	std::cout << context << " failed! Error: " << error.what() << std::endl;
 	close();
-	server->ClearSession(sessionID);
 }
 
 

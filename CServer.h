@@ -16,11 +16,11 @@ private:
 
 	void startAccept();
 
-	//æ¥æ”¶å¯¹ç«¯çš„é“¾æ¥;
+	//½ÓÊÕ¶Ô¶ËµÄÁ´½Ó;
 	boost::asio::ip::tcp::acceptor c_accept;
-	//ä¸Šä¸‹æ–‡
+	//ÉÏÏÂÎÄ
 	boost::asio::io_context& c_ioContext;
-	//socketæ¥æ”¶å¯¹ç«¯ä¿¡æ¯;
+	//socket½ÓÊÕ¶Ô¶ËĞÅÏ¢;
 
 	std::map<std::string, std::shared_ptr<CSession>> sessionMap;
 

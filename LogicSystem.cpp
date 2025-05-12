@@ -1,5 +1,4 @@
 #include "LogicSystem.h"
-#include "UserMgr.h"
 
 LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size){
 
@@ -110,7 +109,7 @@ std::vector<std::string> getServers() {
 
 	std::vector<std::string> serverList;
 
-	std::string serverStringList = ConfigMgr::Inst()["chatservers"]["Name"];
+	std::string serverStringList = ConfigMgr::Inst()["Chatservers"]["Name"];
 
 	std::stringstream stream(serverStringList);
 
