@@ -60,11 +60,13 @@ public:
 
 	bool releaseSendNode(SendNode* node);
 
-	bool getMessageNode(MessageNode * node);
+	bool getMessageNode(MessageNode *& node);
 
-	bool getSendNode(SendNode* node);
+	bool getSendNode(SendNode*& node);
 
 private:
+
+	NodeQueues(size_t size = 1024);
 
 	boost::lockfree::queue<MessageNode*> messageQueues;
 

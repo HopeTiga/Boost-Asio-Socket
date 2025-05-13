@@ -106,31 +106,36 @@ NodeQueues::~NodeQueues()
 
 }
 
+NodeQueues::NodeQueues(size_t size):messageQueues(size),sendQueues(size)
+{
+
+}
+
 bool NodeQueues::releaseMessageNode(MessageNode* node)
 {
+    if (!node->fromPool) return false;
+
 	node->clear();
 
-	messageQueues.push(node);
-
-	return true;
+	return messageQueues.push(node);
 
 }
 
 bool NodeQueues::releaseSendNode(SendNode* node)
 {
+    if (!node->fromPool) return false;
+
 	node->clear();
 
-	sendQueues.push(node);
-
-	return true;
+	return sendQueues.push(node);;
 }
 
-bool NodeQueues::getMessageNode(MessageNode* node)
+bool NodeQueues::getMessageNode(MessageNode*& node)
 {
 	return messageQueues.pop(node);
 }
 
-bool NodeQueues::getSendNode(SendNode* node)
+bool NodeQueues::getSendNode(SendNode*& node)
 {
 	return sendQueues.pop(node);;
 }

@@ -60,7 +60,12 @@ void LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
 
 				if (nowNode != nullptr) {
 
-					NodeQueues::getInstantce()->releaseMessageNode(nowNode);
+					if (!NodeQueues::getInstantce()->releaseMessageNode(nowNode)) {
+
+						delete nowNode;
+
+						nowNode = nullptr;
+					}
 
 				}
 			}
@@ -82,7 +87,12 @@ void LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
 
 		if (nowNode != nullptr) {
 
-			NodeQueues::getInstantce()->releaseMessageNode(nowNode);
+			if (!NodeQueues::getInstantce()->releaseMessageNode(nowNode)) {
+
+				delete nowNode;
+
+				nowNode = nullptr;
+			}
 
 		}
 
