@@ -66,7 +66,7 @@ public:
 
 private:
 
-	NodeQueues(size_t size = 1024);
+	NodeQueues(size_t size = 10240);
 
 	boost::lockfree::queue<MessageNode*> messageQueues;
 

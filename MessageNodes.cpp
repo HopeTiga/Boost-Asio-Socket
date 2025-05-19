@@ -1,5 +1,6 @@
 #include "MessageNodes.h"
 #include "BufferPool.h"
+#include "FastMemcpy_Avx.h"
 
 MessageNode::MessageNode(int64_t headLength) :headLength(headLength), length(0), data(nullptr), fromPool(false) {
     // data 指针初始化为 nullptr
@@ -49,9 +50,9 @@ SendNode::SendNode(const char* msg, int64_t max_length, short msgid) : MessageNo
 
     this->length = max_length + HEAD_TOTAL_LEN;
     data = new char[this->length];
-    memcpy(data, &msgids, HEAD_ID_LEN);
-    memcpy(data + HEAD_ID_LEN, &max_lengths, HEAD_DATA_LEN);
-    memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
+    smart_memcpy(data, &msgids, HEAD_ID_LEN);
+    smart_memcpy(data + HEAD_ID_LEN, &max_lengths, HEAD_DATA_LEN);
+    smart_memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
 }
 
 void SendNode::setSendNode(const char* msg, int64_t max_length, short msgid) {
@@ -62,9 +63,9 @@ void SendNode::setSendNode(const char* msg, int64_t max_length, short msgid) {
     }
     this->length = max_length + HEAD_TOTAL_LEN;
     data = new char[this->length];
-    memcpy(data, &msgids, HEAD_ID_LEN);
-    memcpy(data + HEAD_ID_LEN, &max_lengths, HEAD_DATA_LEN);
-    memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
+    smart_memcpy(data, &msgids, HEAD_ID_LEN);
+    smart_memcpy(data + HEAD_ID_LEN, &max_lengths, HEAD_DATA_LEN);
+    smart_memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
 }
 
 SendNode::~SendNode() {

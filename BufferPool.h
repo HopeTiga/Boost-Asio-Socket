@@ -39,7 +39,14 @@ public:
         if (tier == BufferTier::HUGE) {
             // 对于非常大的请求，直接分配
             try {
-                char* buffer = new (std::nothrow) char[require_size];
+                char* buffer = nullptr;
+                #ifdef _WIN32
+                buffer = (char*) _aligned_malloc(require_size, 64); // Windows专用对齐分配
+                #else
+                buffer* ptr = nullptr;
+                    posix_memalign(&ptr, 64, require_size); // Linux/macOS对齐分配
+                    buffer = (char*)(ptr);
+                #endif
                 if (!buffer) {
                     return nullptr; // 分配失败
                 }
