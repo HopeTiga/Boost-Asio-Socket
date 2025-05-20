@@ -8,6 +8,7 @@
 //=====================================================================
 #ifndef __FAST_MEMCPY_H__
 #define __FAST_MEMCPY_H__
+#define __AVX2__
 
 #include <stddef.h>
 #include <stdint.h>
@@ -490,39 +491,25 @@ INLINE bool is_aligned64(const void* ptr) {
 	return (reinterpret_cast<uintptr_t>(ptr) & 63) == 0;
 }
 
+
+// 优化后实现
 INLINE void* smart_memcpy(void* dst, const void* src, size_t size) {
 	if (size == 0) return dst;
 
-	// 超小数据块优化（0-64字节）
+	// 阶梯式路由策略
 	if (size <= 64) {
 		return memcpy_tiny(dst, src, size);
 	}
-
-	// 中等数据块优化（64B-4KB）
-	if (size <= 4096) {
-		if (is_aligned64(dst) && is_aligned64(src)) {
-			return memcpy_fast(dst, src, size);
-		}
-		return memcpy(dst, src, size);
-	}
-
-	// 大数据块优化（>4KB）
-#ifdef __AVX512F__
-	if (is_aligned64(dst) && is_aligned64(src)) {
-		return memcpy_avx_512(dst, src, size);
-	}
-#elif defined(__AVX2__)
-	if (is_aligned64(dst) && is_aligned64(src)) {
-		return memcpy_avx_256(dst, src, size);
+#ifdef __AVX2__
+	else if (size <= 256 * 1024 && is_aligned64(dst) && is_aligned64(src)) {
+		memcpy_avx_256(dst, src);
+		return nullptr;
 	}
 #endif
-
-	// 默认回退方案
-	return memcpy(dst, src, size);
+	else {
+		return memcpy_fast(dst, src, size);
+	}
 }
-
-	
-
 
 #endif
 
