@@ -32,7 +32,7 @@ void MessageNode::clear() {
 MessageNode::MessageNode(std::shared_ptr<CSession> session, short id, char* datas, int64_t length, short headLength)
     : session(session), id(id), length(length), headLength(headLength), fromPool(false) {
     data = new char[length + 1];
-    memcpy(data, datas, length);
+    smart_memcpy(data, datas, length);
     data[length] = '\0';
 }
 
