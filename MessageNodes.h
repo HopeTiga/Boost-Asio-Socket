@@ -6,7 +6,9 @@ extern class CSession;
 
 class MessageNode {
 
+
 public:
+
 	MessageNode(int64_t headLength);
 
 	MessageNode(std::shared_ptr<CSession> session, short id, char* data, int64_t length, short headLength);

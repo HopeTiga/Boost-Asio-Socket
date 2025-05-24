@@ -4,12 +4,14 @@
 #include "CSession.h"
 #include <queue>
 #include <boost/lockfree/queue.hpp>
+#include "SystemCoroutline.h"
 
 class LogicSystem : public Singleton<LogicSystem>, public std::enable_shared_from_this<LogicSystem>
 {
 	friend class Singleton<LogicSystem>;
 
 public:
+
 
 	~LogicSystem();
 
@@ -27,7 +29,7 @@ private:
 
 	LogicSystem(size_t size = std::thread::hardware_concurrency() * 2);
 
-	void processMessage(std::shared_ptr<LogicSystem> logicSystem);
+	SystemCoroutline processMessage(std::shared_ptr<LogicSystem> logicSystem);
 
 	std::mutex mutexs;
 
@@ -46,5 +48,9 @@ private:
 
 	void boostAsioTcpSocket(std::shared_ptr<CSession>,
 		const short& msg_id, const std::string& msg_data);
+	 
+	SystemCoroutline * systemCoroutlines;
+
 };
+
 

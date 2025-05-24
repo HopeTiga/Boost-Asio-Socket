@@ -1,16 +1,16 @@
 #include "LogicSystem.h"
 
-LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size){
+LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size),systemCoroutlines(new SystemCoroutline[size]) {
 
 	registerCallBackFunction();
+
 }
 
 void LogicSystem::initializeThreads() {
 	
-	auto self = shared_from_this();
 	for (int i = 0; i < threadSize; i++) {
-		threads.emplace_back(std::thread([self]() {
-			self->processMessage(self);
+		threads.emplace_back(std::thread([this,i]() {
+			systemCoroutlines[i] = processMessage(shared_from_this());
 			}));
 	}
 }
@@ -29,16 +29,12 @@ LogicSystem::~LogicSystem() {
 
 }
 
-void LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
+SystemCoroutline LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
 
 	for (;;) {
 
-		{
-			std::unique_lock<std::mutex> lock(mutexs);
-
-			while (logicSystem->messageNodes.empty() && !isStop) {
-				condition.wait(lock);
-			}
+		while (logicSystem->messageNodes.empty() && !isStop) {
+			co_await SystemCoroutline::Awaitable();
 		}
 
 		if (isStop) {
@@ -70,6 +66,8 @@ void LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
 				}
 			}
 
+			co_return;
+
 		}
 
 		MessageNode * nowNode;
@@ -98,13 +96,23 @@ void LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
 
 	}
 
+	co_return;
+
 }
 
 void LogicSystem::postMessageToQueue(MessageNode* node) {
 
 	messageNodes.push(node);
 
-	condition.notify_one();
+	for (int i = 0; i < threadSize; i++) {
+
+		if (this->systemCoroutlines[i].handle.promise().suspended_.load())continue;
+
+		this->systemCoroutlines[i].handle.resume();
+
+		break;
+
+	}
 
 }
 

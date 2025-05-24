@@ -94,8 +94,6 @@ NodeQueues::~NodeQueues()
 
 	while (sendQueues.pop(sendNode)) {
 
-		sendQueues.pop(sendNode);
-
 		if (sendNode != nullptr) {
 
 			delete sendNode;
