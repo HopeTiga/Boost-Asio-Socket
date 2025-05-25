@@ -1,5 +1,6 @@
 #include <coroutine>
 #include <iostream>
+#include "LogicSystem.h"
 
 class SystemCoroutline {
 public:
@@ -7,6 +8,7 @@ public:
     public:
         // 原子状态标志
         std::atomic<bool> suspended_{ false };
+        int coroIndex;
         auto initial_suspend() { return std::suspend_always{}; }
         auto final_suspend() noexcept { return std::suspend_always{}; }
         SystemCoroutline get_return_object() {
@@ -19,6 +21,11 @@ public:
         // 状态访问接口
         bool is_suspended() const noexcept {
             return suspended_.load(std::memory_order_acquire);
+        }
+
+        void storeIndex(int index) {
+            coroIndex = index;
+            readyQueue.push(index); // 加入就绪队列
         }
     };
 
@@ -36,6 +43,8 @@ public:
         void await_suspend(std::coroutine_handle<promise_type> handle) {
 
             handle.promise().suspended_.store(false, std::memory_order_release);
+
+			readyQueue.push(handle.promise().coroIndex); // 加入就绪队列
 
             this->handle = handle;
         };

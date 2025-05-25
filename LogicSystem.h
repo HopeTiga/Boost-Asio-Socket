@@ -4,7 +4,10 @@
 #include "CSession.h"
 #include <queue>
 #include <boost/lockfree/queue.hpp>
-#include "SystemCoroutline.h"
+
+extern boost::lockfree::queue<int> readyQueue;
+
+class SystemCoroutline;
 
 class LogicSystem : public Singleton<LogicSystem>, public std::enable_shared_from_this<LogicSystem>
 {
@@ -48,8 +51,9 @@ private:
 
 	void boostAsioTcpSocket(std::shared_ptr<CSession>,
 		const short& msg_id, const std::string& msg_data);
-	 
-	SystemCoroutline * systemCoroutlines;
+
+	SystemCoroutline* systemCoroutlines;
+
 
 };
 

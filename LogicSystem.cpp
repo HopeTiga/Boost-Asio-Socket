@@ -1,6 +1,10 @@
 #include "LogicSystem.h"
+#include "SystemCoroutline.h"
 
-LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size),systemCoroutlines(new SystemCoroutline[size]) {
+boost::lockfree::queue<int> readyQueue;
+
+LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size)
+,systemCoroutlines(new SystemCoroutline[size]) {
 
 	registerCallBackFunction();
 
@@ -11,6 +15,7 @@ void LogicSystem::initializeThreads() {
 	for (int i = 0; i < threadSize; i++) {
 		threads.emplace_back(std::thread([this,i]() {
 			systemCoroutlines[i] = processMessage(shared_from_this());
+			systemCoroutlines[i].handle.promise().storeIndex(i);
 			}));
 	}
 }
@@ -104,13 +109,11 @@ void LogicSystem::postMessageToQueue(MessageNode* node) {
 
 	messageNodes.push(node);
 
-	for (int i = 0; i < threadSize; i++) {
+	int readyIndex;
 
-		if (this->systemCoroutlines[i].handle.promise().suspended_.load())continue;
+	if (readyQueue.pop(readyIndex)) {
 
-		this->systemCoroutlines[i].handle.resume();
-
-		break;
+		systemCoroutlines[readyIndex].handle.resume();
 
 	}
 
