@@ -32,6 +32,11 @@ LogicSystem::~LogicSystem() {
 		}
 	}
 
+	if (systemCoroutlines != nullptr) {
+		delete[] systemCoroutlines;
+		systemCoroutlines = nullptr;
+	}
+
 }
 
 SystemCoroutline LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
