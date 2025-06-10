@@ -7,7 +7,7 @@
 
 extern boost::lockfree::queue<int> readyQueue;
 
-class SystemCoroutline;
+class SystemCoroutine;
 
 class LogicSystem : public Singleton<LogicSystem>, public std::enable_shared_from_this<LogicSystem>
 {
@@ -32,7 +32,7 @@ private:
 
 	LogicSystem(size_t size = std::thread::hardware_concurrency() * 2);
 
-	SystemCoroutline processMessage(std::shared_ptr<LogicSystem> logicSystem);
+	SystemCoroutine processMessage(std::shared_ptr<LogicSystem> logicSystem);
 
 	std::mutex mutexs;
 
@@ -52,7 +52,7 @@ private:
 	void boostAsioTcpSocket(std::shared_ptr<CSession>,
 		const short& msg_id, const std::string& msg_data);
 
-	SystemCoroutline* systemCoroutlines;
+	SystemCoroutine* systemCoroutines;
 
 
 };

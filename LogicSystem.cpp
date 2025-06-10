@@ -1,10 +1,10 @@
 #include "LogicSystem.h"
-#include "SystemCoroutline.h"
+#include "SystemCoroutine.h"
 
 boost::lockfree::queue<int> readyQueue;
 
 LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size)
-,systemCoroutlines(new SystemCoroutline[size]) {
+,systemCoroutines(new SystemCoroutine[size]) {
 
 	registerCallBackFunction();
 
@@ -14,8 +14,8 @@ void LogicSystem::initializeThreads() {
 	
 	for (int i = 0; i < threadSize; i++) {
 		threads.emplace_back(std::thread([this,i]() {
-			systemCoroutlines[i] = processMessage(shared_from_this());
-			systemCoroutlines[i].handle.promise().storeIndex(i);
+			systemCoroutines[i] = processMessage(shared_from_this());
+			systemCoroutines[i].handle.promise().storeIndex(i);
 			}));
 	}
 }
@@ -32,19 +32,19 @@ LogicSystem::~LogicSystem() {
 		}
 	}
 
-	if (systemCoroutlines != nullptr) {
-		delete[] systemCoroutlines;
-		systemCoroutlines = nullptr;
+	if (systemCoroutines != nullptr) {
+		delete[] systemCoroutines;
+		systemCoroutines = nullptr;
 	}
 
 }
 
-SystemCoroutline LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
+SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
 
 	for (;;) {
 
 		while (logicSystem->messageNodes.empty() && !isStop) {
-			co_await SystemCoroutline::Awaitable();
+			co_await SystemCoroutine::Awaitable();
 		}
 
 		if (isStop) {
@@ -118,7 +118,7 @@ void LogicSystem::postMessageToQueue(MessageNode* node) {
 
 	if (readyQueue.pop(readyIndex)) {
 
-		systemCoroutlines[readyIndex].handle.resume();
+		systemCoroutines[readyIndex].handle.resume();
 
 	}
 
