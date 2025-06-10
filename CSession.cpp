@@ -5,9 +5,11 @@
 #include <boost/uuid/uuid_generators.hpp> // 生成器  
 #include <boost/uuid/uuid_io.hpp>   
 #include "SessionSendThread.h"
+#include "FastMemcpy_Avx.h"
+
 
 CSession::CSession(boost::asio::io_context& ioContext, CServer* cserver) :socket(ioContext)
-, context(ioContext), server(cserver), isStop(false),buffers(4096),node(nullptr) {
+, context(ioContext), server(cserver), isStop(false),node(nullptr) {
 
 	boost::uuids::random_generator generator;
 
@@ -60,8 +62,8 @@ void CSession::start() {
                 int64_t rawBodyLength = 0;
                 
                 // 使用memcpy代替指针强制转换
-                std::memcpy(&rawMsgId, headerBuffer, sizeof(short));
-                std::memcpy(&rawBodyLength, headerBuffer + sizeof(short), sizeof(int64_t));
+                smart_memcpy(&rawMsgId, headerBuffer, sizeof(short));
+                smart_memcpy(&rawBodyLength, headerBuffer + sizeof(short), sizeof(int64_t));
 
                 msgId = boost::asio::detail::socket_ops::network_to_host_short(rawMsgId);
                 bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
@@ -381,22 +383,12 @@ std::string CSession::getSessionId() {
 
 }
 
-int CSession::getUserId() {
-
-	return userId;
-
-}
-
-void CSession::setUserId(int uid) {
-
-	userId = uid;
-
-}
-
 
 void CSession::close() {
 
 	socket.close();
+
+    server->removeSession(this->sessionID);
 
 	isStop = true;
 

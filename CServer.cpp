@@ -3,12 +3,29 @@
 
 
 //tcp::v4()表示接收的ip范围,port代表地址;
-CServer::CServer(boost::asio::io_context& ioContext, unsigned short& port)
-	:c_ioContext(ioContext),c_accept(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port)){
+CServer::CServer(boost::asio::io_context& ioContext, unsigned short& port,size_t size)
+	:c_ioContext(ioContext),c_accept(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port))
+,sessions(size), sessionMutexs(size), hashSize(size){
 
 	LogicSystem::getInstance()->initializeThreads();
 
 	startAccept();
+}
+
+void CServer::removeSession(std::string sessionId)
+{
+	size_t hashValue = std::hash<std::string>{}(sessionId);
+
+	hashValue = hashValue % this->hashSize;
+
+	{
+		std::lock_guard<std::mutex> guard(this->sessionMutexs[hashValue]);
+
+		sessions[hashValue].erase(sessionId);
+
+		connections--;
+	}
+
 }
 
 
@@ -29,11 +46,17 @@ void CServer::startAccept() {
 
 			std::cout << "Session Async_accpet IP: " << session->getSocket().remote_endpoint().address().to_v4().to_string() << ":" << session->getSocket().remote_endpoint().port() << std::endl;
 
-			{
-				std::lock_guard<std::mutex> guard(mutexs);
+			size_t hashValue = std::hash<std::string>{}(session->getSessionId());
 
-				sessionMap.insert(std::pair<std::string, std::shared_ptr<CSession>>(session->getSessionId(), session));
+			hashValue = hashValue % this->hashSize;
+
+			{
+				std::lock_guard<std::mutex> guard(this->sessionMutexs[hashValue]);
+
+				sessions[hashValue].insert(std::pair<std::string, std::shared_ptr<CSession>>(session->getSessionId(), session));
 			}
+
+			connections++;
 
 			session->start();
 			

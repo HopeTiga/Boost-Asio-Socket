@@ -16,6 +16,8 @@ public:
 	void Stop();
 private:
 	AsioIOServicePool(size_t size = std::thread::hardware_concurrency() * 2);
+	size_t minSize;
+	size_t maxSize;
 	std::vector<IOService> _ioServices;
 	std::vector<WorkPtr> _works;
 	std::vector<std::thread> _threads;

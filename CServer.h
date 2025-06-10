@@ -10,7 +10,9 @@
 class CServer{
 public:
 
-	CServer(boost::asio::io_context &ioContext,unsigned short& port);
+	CServer(boost::asio::io_context &ioContext,unsigned short& port,size_t size = 1024);
+
+	void removeSession(std::string sessionId);
 
 private:
 
@@ -22,7 +24,11 @@ private:
 	boost::asio::io_context& c_ioContext;
 	//socket接收对端信息;
 
-	std::map<std::string, std::shared_ptr<CSession>> sessionMap;
+	std::vector<std::map<std::string, std::shared_ptr<CSession>>> sessions;
 
-	std::mutex mutexs;
+	std::vector<std::mutex> sessionMutexs;
+
+	size_t hashSize;
+
+	std::atomic<size_t> connections;
 };

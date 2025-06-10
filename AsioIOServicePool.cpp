@@ -2,7 +2,7 @@
 #include <iostream>
 using namespace std;
 AsioIOServicePool::AsioIOServicePool(size_t size):_ioServices(size),
-_works(size), _nextIOService(0){
+_works(size), _nextIOService(0), minSize(size),maxSize(size * 2) {
 	for (size_t i = 0; i < size; ++i) {
 		_works[i] = std::unique_ptr<Work>(new Work(_ioServices[i]));
 	}
@@ -45,3 +45,4 @@ void AsioIOServicePool::Stop(){
 		t.join();
 	}
 }
+
