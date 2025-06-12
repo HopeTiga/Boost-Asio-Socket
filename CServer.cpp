@@ -36,7 +36,7 @@ void CServer::startAccept() {
 	boost::asio::co_spawn(c_ioContext, [this]() ->boost::asio::awaitable<void> {
 
 		for (;;) {
-			boost::asio::io_context& ioContext = AsioIOServicePool::getInstance()->GetIOService();
+			boost::asio::io_context& ioContext = AsioProactors::getInstance()->getIoComplatePorts();
 
 			std::shared_ptr<CSession> session = std::make_shared<CSession>(ioContext, this);
 

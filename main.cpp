@@ -1,9 +1,7 @@
 ﻿#include<csignal>
 #include"const.h"
 #include "CServer.h"
-bool isStop = false;
-std::condition_variable varible;
-std::mutex mutexs;
+
 
 int main()
 {
@@ -19,7 +17,7 @@ int main()
 
 		unsigned short port = static_cast<unsigned short> (ports);
 
-		boost::asio::io_context& ioContext = AsioIOServicePool::getInstance()->GetIOService();
+		boost::asio::io_context& ioContext = AsioProactors::getInstance()->getIoComplatePorts();
 
 		boost::asio::io_context ioContexts{ 1 };
 
