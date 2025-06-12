@@ -1,8 +1,9 @@
 #include "AsioProactors.h"
+#include "AdvancedSystemMonitor.h"
 
 
 AsioProactors::AsioProactors(size_t minSize, size_t maxSize):minSize(minSize),maxSize(maxSize),nowSize(minSize)
-, ioContexts(minSize),works(minSize),threads(minSize), ioPressures(minSize){
+, ioContexts(maxSize),works(maxSize),threads(maxSize), ioPressures(maxSize), isStop(false){
 	
 	for (int i = 0; i < nowSize; i++) {
 
@@ -17,6 +18,68 @@ AsioProactors::AsioProactors(size_t minSize, size_t maxSize):minSize(minSize),ma
 			});
 
 	}
+	systemMonitorThread = std::thread([this]() {
+
+		AdvancedSystemMonitor::getInstance()->startMonitoring();
+
+		while (!isStop) {
+
+			double pressures =  AdvancedSystemMonitor::getInstance()->getSystemLoadAverage();
+
+			if (pressures > 0.6) {
+
+				std::lock_guard<std::mutex> lock(mutexs);
+
+				if (this->nowSize == this->maxSize) {
+
+					std::this_thread::sleep_for(updateInterval);
+
+					continue;
+				}
+
+				size_t newIndex = this->nowSize.load();    // 先获取当前大小作为新索引
+
+				this->nowSize.fetch_add(1);
+
+				
+
+				std::unique_ptr<boost::asio::io_context::work> work = std::make_unique<boost::asio::io_context::work>(ioContexts[newIndex]);
+
+				works[newIndex] = std::move(work);
+
+				threads[newIndex] = std::move(std::thread([this, newIndex]() {
+
+					ioContexts[newIndex].run();
+
+					}));
+			}
+			else if (pressures < 0.3) {
+
+				std::lock_guard<std::mutex> lock(mutexs);
+
+				if (this->nowSize == this->minSize) {
+
+					std::this_thread::sleep_for(updateInterval);
+
+					continue;
+				}
+
+				size_t newSize = this->nowSize.fetch_sub(1) - 1;  // 原子性地减少并获取新大小
+
+				size_t indexToRemove = newSize;             // 要移除的索引
+
+				works[indexToRemove]->get_io_context().stop();
+
+				works[indexToRemove].reset();
+
+				this->threads[indexToRemove].join();
+
+			}
+
+		}
+
+		});
+
 
 }
 
@@ -36,6 +99,8 @@ void AsioProactors::stop()
 	for (auto& t : threads) {
 		t.join();
 	}
+
+	systemMonitorThread.join();
 }
 
 boost::asio::io_context& AsioProactors::getIoComplatePorts()

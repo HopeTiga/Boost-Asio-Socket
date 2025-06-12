@@ -40,9 +40,14 @@ private:
 
 	size_t maxSize;
 
-	size_t nowSize;
+	std::atomic<size_t> nowSize;
 
 	std::atomic<size_t> loadBalancing = 0;
 
+	std::thread systemMonitorThread;
+
+	std::chrono::milliseconds updateInterval{ 30000 };
+
+	std::atomic<bool> isStop;
 };
 
