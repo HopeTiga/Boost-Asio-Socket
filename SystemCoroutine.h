@@ -1,12 +1,14 @@
-#include <coroutine>
+ï»¿#include <coroutine>
 #include <iostream>
 #include "LogicSystem.h"
+
+extern MessagePressureMetrics metrics;
 
 class SystemCoroutine {
 public:
     class promise_type {
     public:
-        // Ô­×Ó×´Ì¬±êÖ¾
+        // åŸå­çŠ¶æ€æ ‡å¿—
         std::atomic<bool> suspended_{ false };
         int coroIndex;
         auto initial_suspend() { return std::suspend_always{}; }
@@ -18,18 +20,18 @@ public:
         void return_void() {}
         void unhandled_exception() { std::terminate(); }
 
-        // ×´Ì¬·ÃÎÊ½Ó¿Ú
+        // çŠ¶æ€è®¿é—®æ¥å£
         bool is_suspended() const noexcept {
             return suspended_.load(std::memory_order_acquire);
         }
 
         void storeIndex(int index) {
             coroIndex = index;
-            readyQueue.push(index); // ¼ÓÈë¾ÍĞ÷¶ÓÁĞ
+            metrics.readyQueue.enqueue(index); // åŠ å…¥å°±ç»ªé˜Ÿåˆ—
         }
     };
 
-    // awaitableÊÊÅäÆ÷
+    // awaitableé€‚é…å™¨
     class Awaitable {
     public:
         Awaitable() :suspended_(false) {};
@@ -37,26 +39,36 @@ public:
         std::atomic<bool> suspended_;
 
         bool await_ready() {
-            return false; // ×ÜÊÇ¹ÒÆğ
+            return false; // æ€»æ˜¯æŒ‚èµ·
         };
 
         void await_suspend(std::coroutine_handle<promise_type> handle) {
 
             handle.promise().suspended_.store(false, std::memory_order_release);
 
-			readyQueue.push(handle.promise().coroIndex); // ¼ÓÈë¾ÍĞ÷¶ÓÁĞ
+            metrics.readyQueue.enqueue(handle.promise().coroIndex); // åŠ å…¥å°±ç»ªé˜Ÿåˆ—
 
             this->handle = handle;
         };
 
         void await_resume() {
-            this->handle.promise().suspended_.store(true, std::memory_order_release);
+            // ğŸ”§ æ·»åŠ å®‰å…¨æ£€æŸ¥
+            if (!handle || !handle.address()) {
+                return; // handleæ— æ•ˆï¼Œç›´æ¥è¿”å›
+            }
+
+            try {
+                this->handle.promise().suspended_.store(true, std::memory_order_release);
+            }
+            catch (std::exception & e) {
+                std::cout << "SystemCoroutine::Awaitabl::await_resume Error : " << e.what() << "\r\n";
+            }
         }
 
         std::coroutine_handle<promise_type> handle;
     };
 
-    // Íâ²¿×´Ì¬»ñÈ¡½Ó¿Ú
+    // å¤–éƒ¨çŠ¶æ€è·å–æ¥å£
     bool is_suspended() const noexcept {
         return handle.promise().is_suspended();
     }

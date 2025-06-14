@@ -1,10 +1,12 @@
-#include "LogicSystem.h"
+﻿#include "LogicSystem.h"
 #include "SystemCoroutine.h"
+#include "NodeQueues.h"
+#include <chrono>
 
-boost::lockfree::queue<int> readyQueue;
+MessagePressureMetrics metrics;
 
-LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size)
-,systemCoroutines(new SystemCoroutine[size]) {
+LogicSystem::LogicSystem(size_t minSize, size_t maxSize) :minSize(minSize), maxSize(maxSize), nowSize(minSize),isStop(false), threads(maxSize)
+,systemCoroutines(new SystemCoroutine[maxSize]) {
 
 	registerCallBackFunction();
 
@@ -12,12 +14,47 @@ LogicSystem::LogicSystem(size_t size ) :isStop(false), threadSize(size)
 
 void LogicSystem::initializeThreads() {
 	
-	for (int i = 0; i < threadSize; i++) {
+	for (int i = 0; i < nowSize; i++) {
 		threads.emplace_back(std::thread([this,i]() {
 			systemCoroutines[i] = processMessage(shared_from_this());
 			systemCoroutines[i].handle.promise().storeIndex(i);
 			}));
 	}
+
+	metricsThread = std::move(std::thread([this]() {
+		
+		while (!isStop) {
+
+			double pressures = metrics.getMessagePressure(this->nowSize);
+
+			if (pressures > 0.6) {
+
+				std::lock_guard<std::mutex> lock(mutexs);
+
+				if (this->nowSize == this->maxSize) {
+
+					std::this_thread::sleep_for(updateInterval);
+
+					continue;
+				}
+
+				size_t newIndex = this->nowSize.load();    // 先获取当前大小作为新索引
+
+				this->nowSize.fetch_add(1);
+
+				threads[newIndex] = std::move(std::thread([this, newIndex]() {
+					processMessageTemporary(shared_from_this());
+					}));
+
+
+			}
+
+			std::this_thread::sleep_for(updateInterval);
+		}
+
+		}));
+
+
 }
 
 LogicSystem::~LogicSystem() {
@@ -39,86 +76,186 @@ LogicSystem::~LogicSystem() {
 
 }
 
+// LogicSystem.cpp 中的关键修改部分
+
 SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
+    for (;;) {
+        while (logicSystem->messageNodes.size_approx() == 0 && !isStop) {
+            metrics.busyCoroutines--;
+            co_await SystemCoroutine::Awaitable();
+        }
 
-	for (;;) {
+        if (isStop) {
+            while (!logicSystem->messageNodes.size_approx() == 0) {
+                MessageNode* nowNode = nullptr;
+                logicSystem->messageNodes.try_dequeue(nowNode);
 
-		while (logicSystem->messageNodes.empty() && !isStop) {
-			co_await SystemCoroutine::Awaitable();
-		}
+                if (nowNode != nullptr) {
+                    // 🔧 处理消息后释放引用
+                    if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
+                        std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
+                    }
+                    else {
+                        // 处理消息
+                        long long start = std::chrono::floor<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now()
+                        ).time_since_epoch().count();
 
-		if (isStop) {
+                        std::string msgData(nowNode->data, nowNode->length);
+                        callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
 
-			while (!logicSystem->messageNodes.empty()) {
+                        long long end = std::chrono::floor<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now()
+                        ).time_since_epoch().count();
 
-				MessageNode * nowNode;
+                        metrics.totalProcessingTime += (end - start);
+                        metrics.totalProcessed++;
+                    }
 
-				logicSystem->messageNodes.pop(nowNode);
+                    metrics.pendingMessages--;
 
-				if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
+                    if(nowNode!=nullptr) {
+						NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                        nowNode = nullptr;
+                    }
+                }
+            }
+            co_return;
+        }
 
-					std::cout << "The MessageID" << nowNode->id << "is no corresponding CallBackFunctions" << std::endl;
+        MessageNode* nowNode = nullptr;
+        logicSystem->messageNodes.try_dequeue(nowNode);
 
-					continue;
-				}
+        if (nowNode != nullptr) {
+            if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
+                std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
+            }
+            else {
+                // 处理消息
+                long long start = std::chrono::floor<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now()
+                ).time_since_epoch().count();
 
-				callBackFunctions[nowNode->id](nowNode->session, nowNode->id, std::string(nowNode->data, nowNode->length));
+                std::string msgData(nowNode->data, nowNode->length);
+                callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
 
-				if (nowNode != nullptr) {
 
-					if (!NodeQueues::getInstantce()->releaseMessageNode(nowNode)) {
+                long long end = std::chrono::floor<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now()
+                ).time_since_epoch().count();
 
-						delete nowNode;
+                metrics.totalProcessingTime += (end - start);
+                metrics.totalProcessed++;
+            }
 
-						nowNode = nullptr;
-					}
+            metrics.pendingMessages--;
 
-				}
-			}
+            if (nowNode!=nullptr) {
+                NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                nowNode = nullptr;
+            }
+        }
+    }
 
-			co_return;
+    co_return;
+}
 
-		}
+void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSystem) {
+    for (;;) {
+        while (logicSystem->messageNodes.size_approx() == 0 && !isStop) {
+            metrics.busyCoroutines--;
+            return;
+        }
 
-		MessageNode * nowNode;
+        if (isStop) {
+            while (!logicSystem->messageNodes.size_approx() == 0) {
+                MessageNode* nowNode = nullptr;
+                logicSystem->messageNodes.try_dequeue(nowNode);
 
-		logicSystem->messageNodes.pop(nowNode);
+                if (nowNode != nullptr) {
+                    if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
+                        std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
+                    }
+                    else {
+                        // 处理消息
+                        long long start = std::chrono::floor<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now()
+                        ).time_since_epoch().count();
 
-		if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
+                        std::string msgData(nowNode->data, nowNode->length);
+                        callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
 
-			std::cout << "The MessageID is no corresponding CallBackFunctions" << std::endl;
 
-			continue;
-		}
+                        long long end = std::chrono::floor<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now()
+                        ).time_since_epoch().count();
 
-		callBackFunctions[nowNode->id](nowNode->session, nowNode->id, std::string(nowNode->data, nowNode->length));
+                        metrics.totalProcessingTime += (end - start);
+                        metrics.totalProcessed++;
+                    }
 
-		if (nowNode != nullptr) {
+                    metrics.pendingMessages--;
+                    if (nowNode != nullptr) {
+                        NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                        nowNode = nullptr;
+                    }
+                }
+            }
+            return;
+        }
 
-			if (!NodeQueues::getInstantce()->releaseMessageNode(nowNode)) {
+        MessageNode* nowNode = nullptr;
+        logicSystem->messageNodes.try_dequeue(nowNode);
 
-				delete nowNode;
+        if (nowNode != nullptr) {
 
-				nowNode = nullptr;
-			}
+            if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
+                std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
+            }
+            else {
+                // 处理消息
+                long long start = std::chrono::floor<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now()
+                ).time_since_epoch().count();
 
-		}
+                std::string msgData(nowNode->data, nowNode->length);
+                callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
 
-	}
+                long long end = std::chrono::floor<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now()
+                ).time_since_epoch().count();
 
-	co_return;
+                metrics.totalProcessingTime += (end - start);
+                metrics.totalProcessed++;
+            }
 
+            metrics.pendingMessages--;
+
+            if (nowNode != nullptr) {
+                NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                nowNode = nullptr;
+            }
+        }
+    }
+
+    return;
 }
 
 void LogicSystem::postMessageToQueue(MessageNode* node) {
 
-	messageNodes.push(node);
+	messageNodes.enqueue(node);
+
+	metrics.pendingMessages++;
 
 	int readyIndex;
 
-	if (readyQueue.pop(readyIndex)) {
+	if (metrics.readyQueue.try_dequeue(readyIndex)) {
+
+        if (readyIndex < 0 || readyIndex >= nowSize.load() - 1) return;
 
 		systemCoroutines[readyIndex].handle.resume();
+
+		metrics.busyCoroutines++;
 
 	}
 
@@ -153,8 +290,6 @@ std::vector<std::string> getServers() {
 
 void LogicSystem::boostAsioTcpSocket(std::shared_ptr<CSession> session,
 	const short& msg_id, const std::string& msg_data) {
-
-	std::cout << "boostAsioTcpSocket::Coroutine : " << msg_data << std::endl;
 
 	session->send("boostAsioTcpSocket::Coroutine CPlusPlus20", 1001);
 

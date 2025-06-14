@@ -46,7 +46,9 @@ SessionSendThread::SessionSendThread(size_t size):size(size),threadCount(size), 
 
 				}
 				
-				(*func)();
+				if (func) {
+					(*func)();
+				}
 
 			}
 			})));

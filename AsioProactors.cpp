@@ -41,8 +41,6 @@ AsioProactors::AsioProactors(size_t minSize, size_t maxSize):minSize(minSize),ma
 
 				this->nowSize.fetch_add(1);
 
-				
-
 				std::unique_ptr<boost::asio::io_context::work> work = std::make_unique<boost::asio::io_context::work>(ioContexts[newIndex]);
 
 				works[newIndex] = std::move(work);
@@ -76,6 +74,7 @@ AsioProactors::AsioProactors(size_t minSize, size_t maxSize):minSize(minSize),ma
 
 			}
 
+			std::this_thread::sleep_for(updateInterval);
 		}
 
 		});
@@ -90,6 +89,16 @@ AsioProactors::~AsioProactors()
 
 void AsioProactors::stop()
 {
+
+	if (systemMonitorThread.joinable()) {
+
+		systemMonitorThread.join();
+
+	}
+
+	// 停止系统监控器
+	AdvancedSystemMonitor::getInstance()->stopMonitoring();
+
 	for (auto& work : works) {
 		//把服务先停止
 		work->get_io_context().stop();
@@ -97,10 +106,10 @@ void AsioProactors::stop()
 	}
 
 	for (auto& t : threads) {
-		t.join();
+		if (t.joinable()) {
+			t.join();
+		}
 	}
-
-	systemMonitorThread.join();
 }
 
 boost::asio::io_context& AsioProactors::getIoComplatePorts()

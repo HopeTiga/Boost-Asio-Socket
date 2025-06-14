@@ -3,7 +3,6 @@
 #include "MessageNodes.h"
 #include <boost/asio.hpp>
 #include <boost/lockfree/queue.hpp>
-#include "BufferPool.h"
 
 extern class CServer;
 
@@ -33,12 +32,10 @@ private:
 
 	CServer* server;
 
-	bool isStop;
+	std::atomic<bool> isStop;
 
 	void close();
 
-	MessageNode * node;
-	//队列的作用是保持异步发送数据时的有序性;
 	boost::lockfree::queue<SendNode*> sendNodes;
 
 	void start();
@@ -46,9 +43,6 @@ private:
 	std::mutex mutexs;
 
 	void handleError(const boost::system::error_code& error, const std::string& context);
-
-	int _user_uid;
-
 
 };
 

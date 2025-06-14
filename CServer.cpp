@@ -9,6 +9,9 @@ CServer::CServer(boost::asio::io_context& ioContext, unsigned short& port,size_t
 
 	LogicSystem::getInstance()->initializeThreads();
 
+	c_accept.set_option(boost::asio::ip::tcp::no_delay(true));
+	c_accept.set_option(boost::asio::socket_base::reuse_address(true));
+
 	startAccept();
 }
 
@@ -41,8 +44,6 @@ void CServer::startAccept() {
 			std::shared_ptr<CSession> session = std::make_shared<CSession>(ioContext, this);
 
 			co_await c_accept.async_accept(session->getSocket(), boost::asio::use_awaitable);
-
-			session->getSocket().set_option(boost::asio::ip::tcp::no_delay(true));
 
 			std::cout << "Session Async_accpet IP: " << session->getSocket().remote_endpoint().address().to_v4().to_string() << ":" << session->getSocket().remote_endpoint().port() << std::endl;
 

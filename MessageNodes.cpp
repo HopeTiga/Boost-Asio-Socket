@@ -1,140 +1,151 @@
 #include "MessageNodes.h"
-#include "BufferPool.h"
 #include "FastMemcpy_Avx.h"
+#include "NodeQueues.h"
+#include <iostream>
 
-MessageNode::MessageNode(int64_t headLength) :headLength(headLength), length(0), data(nullptr), fromPool(false) {
-    // data 指针初始化为 nullptr
+MessageNode::MessageNode(int64_t headLength)
+    : headLength(static_cast<short>(headLength)),
+    id(0),
+    data(nullptr),
+    length(0),
+    bufferSize(0),
+    dataSource(MemorySource::NORMAL_NEW)
+{
+}
+
+MessageNode::MessageNode(std::shared_ptr<CSession> session, short id, char* data, int64_t length, short headLength)
+    : headLength(headLength),
+    id(id),
+    data(data),
+    length(length),
+    bufferSize(static_cast<size_t>(length)),
+    session(session),
+    dataSource(MemorySource::NORMAL_NEW)
+{
 }
 
 MessageNode::~MessageNode() {
-    if (fromPool && data) {
-        BufferPool::getInstance()->releaseBuffer(data);
-        data = nullptr;
-    } else if (data) {
-        delete[] data;
-        data = nullptr;
-    }
+    clear();
 }
 
 void MessageNode::clear() {
-    if (fromPool && data) {
-        BufferPool::getInstance()->releaseBuffer(data);
-        data = nullptr;
-    } else if (data) {
-        delete[] data;
+    if (data) {
+        // 🔧 根据内存来源正确释放
+        if (dataSource == MemorySource::MEMORY_POOL) {
+            MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
+            if (!memPool.deallocate(data, bufferSize)) {
+                // 返回内存池失败，直接释放
+                delete[] data;
+            }
+        }
+        else {
+            delete[] data;
+        }
         data = nullptr;
     }
+
+    // 重置所有状态
     length = 0;
-    session.reset();
-    fromPool = false;
-}
+    id = 0;
+    dataSource = MemorySource::NORMAL_NEW;
 
-MessageNode::MessageNode(std::shared_ptr<CSession> session, short id, char* datas, int64_t length, short headLength)
-    : session(session), id(id), length(length), headLength(headLength), fromPool(false) {
-    data = new char[length + 1];
-    smart_memcpy(data, datas, length);
-    data[length] = '\0';
-}
-
-void MessageNode::setLength(size_t length) {
-    if (data && !fromPool) {
-        delete[] data;
+    // 清理session引用
+    if (session) {
+        session.reset();
     }
-    this->length = length;
 }
 
-
-SendNode::SendNode(const char* msg, int64_t max_length, short msgid) : MessageNode(HEAD_TOTAL_LEN) {
-    short msgids = boost::asio::detail::socket_ops::host_to_network_short(msgid);
-    int64_t max_lengths = boost::asio::detail::socket_ops::host_to_network_long(max_length);
-
-    this->length = max_length + HEAD_TOTAL_LEN;
-    data = new char[this->length];
-    smart_memcpy(data, &msgids, HEAD_ID_LEN);
-    smart_memcpy(data + HEAD_ID_LEN, &max_lengths, HEAD_DATA_LEN);
-    smart_memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
-}
-
-void SendNode::setSendNode(const char* msg, int64_t max_length, short msgid) {
-    short msgids = boost::asio::detail::socket_ops::host_to_network_short(msgid);
-    int64_t max_lengths = boost::asio::detail::socket_ops::host_to_network_long(max_length);
-    if (data && !fromPool) {
-        delete[] data;
+SendNode::SendNode(const char* msg, int64_t max_length, short msgid)
+    : MessageNode(HEAD_TOTAL_LEN) {
+    if (msg != nullptr && max_length > 0) {
+        safeSetSendNode(msg, max_length, msgid);
     }
-    this->length = max_length + HEAD_TOTAL_LEN;
-    data = new char[this->length];
-    smart_memcpy(data, &msgids, HEAD_ID_LEN);
-    smart_memcpy(data + HEAD_ID_LEN, &max_lengths, HEAD_DATA_LEN);
-    smart_memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
 }
 
 SendNode::~SendNode() {
-
+    // 基类析构函数会处理清理
 }
 
+bool SendNode::safeSetSendNode(const char* msg, int64_t max_length, short msgid) {
+    if (!msg || max_length <= 0) {
+        return false;
+    }
 
-NodeQueues::~NodeQueues()
-{
-	
-	MessageNode* messageNode;
+    // 清理旧数据
+    if (data) {
+        // 🔧 根据内存来源正确释放旧数据
+        if (dataSource == MemorySource::MEMORY_POOL) {
+            MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
+            if (!memPool.deallocate(data, bufferSize)) {
+                delete[] data;
+            }
+        }
+        else {
+            delete[] data;
+        }
+        data = nullptr;
+    }
 
-	while (messageQueues.pop(messageNode)) {
-	
-		if (messageNode != nullptr) {
-		
-			delete messageNode;
+    // 准备数据
+    uint16_t msgids = boost::asio::detail::socket_ops::host_to_network_short(
+        static_cast<uint16_t>(msgid));
+    uint64_t max_lengths = boost::asio::detail::socket_ops::host_to_network_long(
+        static_cast<uint64_t>(max_length));
 
-			messageNode = nullptr;
-			
-		}
-	}
+    this->id = msgid;
+    this->length = max_length;
+    size_t total_size = max_length + HEAD_TOTAL_LEN;
+    bufferSize = total_size;
 
+    // 🔧 优先从内存池分配，并记录来源
+    MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
+    data = static_cast<char*>(memPool.allocate(total_size));
 
-	SendNode* sendNode;
+    if (data) {
+        dataSource = MemorySource::MEMORY_POOL;
+    }
+    else {
+        // 内存池分配失败，回退到普通分配
+        data = new char[total_size];
+        dataSource = MemorySource::NORMAL_NEW;
+        if (!data) {
+            return false;
+        }
+    }
 
-	while (sendQueues.pop(sendNode)) {
+    smart_memcpy(data, &msgids, HEAD_ID_LEN);
+    smart_memcpy(data + HEAD_ID_LEN, &max_lengths, HEAD_DATA_LEN);
+    smart_memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
 
-		if (sendNode != nullptr) {
-
-			delete sendNode;
-
-			sendNode = nullptr;
-
-		}
-	}
-
+    return true;
 }
 
-NodeQueues::NodeQueues(size_t size):messageQueues(size),sendQueues(size)
-{
-
+void SendNode::setSendNode(const char* msg, int64_t max_length, short msgid) {
+    safeSetSendNode(msg, max_length, msgid);
 }
 
-bool NodeQueues::releaseMessageNode(MessageNode* node)
-{
-    if (!node->fromPool) return false;
+void SendNode::clear() {
+    if (data) {
+        // 🔧 根据内存来源正确释放
+        if (dataSource == MemorySource::MEMORY_POOL) {
+            MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
+            if (!memPool.deallocate(data, bufferSize)) {
+                delete[] data;
+            }
+        }
+        else {
+            delete[] data;
+        }
+        data = nullptr;
+    }
 
-	node->clear();
+    // 重置所有状态
+    length = 0;
+    id = 0;
+    dataSource = MemorySource::NORMAL_NEW;
 
-	return messageQueues.push(node);
-
-}
-
-bool NodeQueues::releaseSendNode(SendNode* node)
-{
-    if (!node->fromPool) return false;
-
-	node->clear();
-
-	return sendQueues.push(node);;
-}
-
-bool NodeQueues::getMessageNode(MessageNode*& node)
-{
-	return messageQueues.pop(node);
-}
-
-bool NodeQueues::getSendNode(SendNode*& node)
-{
-	return sendQueues.pop(node);;
+    // 清理session引用
+    if (session) {
+        session.reset();
+    }
 }
