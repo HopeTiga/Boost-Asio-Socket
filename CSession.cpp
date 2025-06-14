@@ -159,23 +159,27 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
             // 节点已经是干净的，直接设置数据
             //nowNode->setSendNode(msg, max_length, msgid);
 
+            if (this->sendNodes.enqueue(nowNode)) {
+                nowNode = nullptr;
+            }
+
             auto self = shared_from_this();
 
-            boost::asio::co_spawn(context, [self, nodeToSend = nowNode]() mutable -> boost::asio::awaitable<void> {
+            boost::asio::co_spawn(context, [self,nowNodes = nowNode]() mutable -> boost::asio::awaitable<void> {
                 try {
-                    co_await boost::asio::async_write(self->socket,
-                        boost::asio::buffer(nodeToSend->data, nodeToSend->length + HEAD_TOTAL_LEN),
-                        boost::asio::use_awaitable);
+                    if (nowNodes != nullptr) {
 
-                    if (nodeToSend) {
-						NodeQueues::getInstance()->releaseSendNode(nodeToSend);
+                        co_await boost::asio::async_write(self->socket,
+                            boost::asio::buffer(nowNodes->data, nowNodes->length + HEAD_TOTAL_LEN),
+                            boost::asio::use_awaitable);
+
+                        NodeQueues::getInstance()->releaseSendNode(nowNodes);
+
+                        nowNodes = nullptr;
                     }
-      
-                    nodeToSend = nullptr;
-
                     // 处理队列中的其他消息
                     SendNode* queuedNode = nullptr;
-                    while (self->sendNodes.pop(queuedNode)) {
+                    while (self->sendNodes.try_dequeue(queuedNode)) {
                         if (queuedNode) {
                             co_await boost::asio::async_write(self->socket,
                                 boost::asio::buffer(queuedNode->data, queuedNode->length + HEAD_TOTAL_LEN),
@@ -184,17 +188,12 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
                             if (queuedNode) {
                                 NodeQueues::getInstance()->releaseSendNode(queuedNode);
                             }
-                        
                             queuedNode = nullptr;
                         }
                     }
                 }
                 catch (const std::exception& e) {
                     std::cerr << "CSession::send error: " << e.what() << std::endl;
-                    if (nodeToSend) {
-                        delete nodeToSend;
-                        nodeToSend = nullptr;
-                    }
                     if (!self->isStop) {
                         self->close();
                     }
@@ -220,22 +219,29 @@ void CSession::send(std::string msg, short msgid) {
             // 节点已经是干净的，直接设置数据
             //nowNode->setSendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
 
+            if (this->sendNodes.enqueue(nowNode)) {
+                nowNode = nullptr;
+            }
+
             auto self = shared_from_this();
 
-            boost::asio::co_spawn(context, [self, nodeToSend = nowNode]() mutable -> boost::asio::awaitable<void> {
+            boost::asio::co_spawn(context, [self, nowNodes = nowNode]() mutable -> boost::asio::awaitable<void> {
                 try {
-                    co_await boost::asio::async_write(self->socket,
-                        boost::asio::buffer(nodeToSend->data, nodeToSend->length + HEAD_TOTAL_LEN),
-                        boost::asio::use_awaitable);
 
-                    if (nodeToSend) {
-                        NodeQueues::getInstance()->releaseSendNode(nodeToSend);
+                    if (nowNodes != nullptr) { 
+
+                        co_await boost::asio::async_write(self->socket,
+                            boost::asio::buffer(nowNodes->data, nowNodes->length + HEAD_TOTAL_LEN),
+                            boost::asio::use_awaitable);
+
+                        NodeQueues::getInstance()->releaseSendNode(nowNodes);
+
+                        nowNodes = nullptr;
                     }
-                    nodeToSend = nullptr;
 
                     // 处理队列中的其他消息
                     SendNode* queuedNode = nullptr;
-                    while (self->sendNodes.pop(queuedNode)) {
+                    while (self->sendNodes.try_dequeue(queuedNode)) {
                         if (queuedNode) {
                             co_await boost::asio::async_write(self->socket,
                                 boost::asio::buffer(queuedNode->data, queuedNode->length + HEAD_TOTAL_LEN),
@@ -250,12 +256,6 @@ void CSession::send(std::string msg, short msgid) {
                 }
                 catch (const std::exception& e) {
                     std::cerr << "CSession::send error: " << e.what() << std::endl;
-                    if (nodeToSend) {
-                        if (nodeToSend) {
-                            delete nodeToSend;
-                        }
-                        nodeToSend = nullptr;
-                    }
                     if (!self->isStop) {
                         self->close();
                     }

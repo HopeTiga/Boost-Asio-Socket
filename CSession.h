@@ -2,7 +2,7 @@
 #include "const.h"
 #include "MessageNodes.h"
 #include <boost/asio.hpp>
-#include <boost/lockfree/queue.hpp>
+#include "concurrentqueue.h"
 
 extern class CServer;
 
@@ -36,7 +36,7 @@ private:
 
 	void close();
 
-	boost::lockfree::queue<SendNode*> sendNodes;
+	moodycamel::ConcurrentQueue<SendNode*> sendNodes;
 
 	void start();
 
