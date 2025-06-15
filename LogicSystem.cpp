@@ -115,7 +115,13 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
                     metrics.pendingMessages--;
 
                     if(nowNode!=nullptr) {
-						NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                        if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
+                            NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                        }
+                        else {
+                            delete nowNode;
+                        }
+
                         nowNode = nullptr;
                     }
                 }
@@ -150,8 +156,15 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
 
             metrics.pendingMessages--;
 
-            if (nowNode!=nullptr) {
-                NodeQueues::getInstance()->releaseMessageNode(nowNode);
+            if (nowNode != nullptr) {
+
+                if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
+                    NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                }
+                else {
+                    delete nowNode;
+                }
+
                 nowNode = nullptr;
             }
         }
@@ -196,7 +209,13 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
 
                     metrics.pendingMessages--;
                     if (nowNode != nullptr) {
-                        NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                        if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
+                            NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                        }
+                        else {
+                            delete nowNode;
+                        }
+
                         nowNode = nullptr;
                     }
                 }
@@ -232,7 +251,13 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
             metrics.pendingMessages--;
 
             if (nowNode != nullptr) {
-                NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
+                    NodeQueues::getInstance()->releaseMessageNode(nowNode);
+                }
+                else {
+                    delete nowNode;
+                }
+
                 nowNode = nullptr;
             }
         }

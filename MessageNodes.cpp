@@ -32,8 +32,7 @@ void MessageNode::clear() {
     if (data) {
         // 🔧 根据内存来源正确释放
         if (dataSource == MemorySource::MEMORY_POOL) {
-            MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
-            if (!memPool.deallocate(data, bufferSize)) {
+            if (!MemoryPool::getInstance()->deallocate(data, bufferSize)) {
                 // 返回内存池失败，直接释放
                 delete[] data;
             }
@@ -75,8 +74,7 @@ bool SendNode::safeSetSendNode(const char* msg, int64_t max_length, short msgid)
     if (data) {
         // 🔧 根据内存来源正确释放旧数据
         if (dataSource == MemorySource::MEMORY_POOL) {
-            MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
-            if (!memPool.deallocate(data, bufferSize)) {
+            if (!MemoryPool::getInstance()->deallocate(data, bufferSize)) {
                 delete[] data;
             }
         }
@@ -97,12 +95,11 @@ bool SendNode::safeSetSendNode(const char* msg, int64_t max_length, short msgid)
     size_t total_size = max_length + HEAD_TOTAL_LEN;
     bufferSize = total_size;
 
-    // 🔧 优先从内存池分配，并记录来源
-    MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
-    data = static_cast<char*>(memPool.allocate(total_size));
+    data = static_cast<char*>(MemoryPool::getInstance()->allocate(total_size));
 
     if (data) {
         dataSource = MemorySource::MEMORY_POOL;
+        bufferSize = MemoryPool::alignSize(total_size);
     }
     else {
         // 内存池分配失败，回退到普通分配
@@ -128,8 +125,7 @@ void SendNode::clear() {
     if (data) {
         // 🔧 根据内存来源正确释放
         if (dataSource == MemorySource::MEMORY_POOL) {
-            MemoryPool& memPool = NodeQueues::getInstance()->getMemoryPool();
-            if (!memPool.deallocate(data, bufferSize)) {
+            if (!MemoryPool::getInstance()->deallocate(data, bufferSize)) {
                 delete[] data;
             }
         }

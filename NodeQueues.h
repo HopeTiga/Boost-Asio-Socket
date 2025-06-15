@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "const.h"
 #include "MessageNodes.h"
 #include "Singleton.h"
@@ -17,7 +17,7 @@
 #include <stdlib.h>  // for posix_memalign/free
 #endif
 
-// ÄÚ´æ¿é½á¹¹
+// å†…å­˜å—ç»“æ„
 struct MemoryBlock {
     void* ptr;
     size_t size;
@@ -30,19 +30,23 @@ struct MemoryBlock {
     }
 };
 
-// ÄÚ´æ³ØÀà - Ïß³Ì°²È«µÄÄÚ´æ¹ÜÀí
+// å†…å­˜æ± ç±» - çº¿ç¨‹å®‰å…¨çš„å†…å­˜ç®¡ç†
 class MemoryPool {
 public:
-    MemoryPool(size_t initialBlockSize = 1024, size_t maxPoolSize = 10000);
     ~MemoryPool();
 
-    // ·ÖÅäÄÚ´æ
+    static MemoryPool* getInstance() {
+        static MemoryPool instance;
+        return &instance;
+    }
+
+    // åˆ†é…å†…å­˜
     void* allocate(size_t size);
 
-    // ÊÍ·ÅÄÚ´æ»Ø³Ø×Ó£¬Ê§°ÜÔòÖ±½Ódelete
+    // é‡Šæ”¾å†…å­˜å›æ± å­ï¼Œå¤±è´¥åˆ™ç›´æ¥delete
     bool deallocate(void* ptr, size_t size);
 
-    // »ñÈ¡³Ø×ÓÍ³¼ÆĞÅÏ¢
+    // è·å–æ± å­ç»Ÿè®¡ä¿¡æ¯
     struct PoolStats {
         size_t totalAllocated;
         size_t poolSize;
@@ -51,42 +55,57 @@ public:
     };
     PoolStats getStats() const;
 
-    // ÇåÀí¹ıÆÚÄÚ´æ¿é£¨¶¨ÆÚµ÷ÓÃ£©
+    // æ¸…ç†è¿‡æœŸå†…å­˜å—ï¼ˆå®šæœŸè°ƒç”¨ï¼‰
     void cleanup();
 
+    // å†…å­˜å¯¹é½è¾…åŠ©å‡½æ•°
+    static size_t alignSize(size_t size);
+
 private:
-    // °´´óĞ¡·ÖÀàµÄÄÚ´æ³Ø
-    std::unordered_map<size_t, moodycamel::ConcurrentQueue<void*>> sizePools;
+    MemoryPool(size_t initialBlockSize = 1024, size_t maxPoolSize = 50);
 
-    // ³Ø×Ó´óĞ¡ÏŞÖÆ
-    std::unordered_map<size_t, std::atomic<size_t>> poolSizes;
+    // ğŸ”§ ä¼˜åŒ–ï¼šé¢„å®šä¹‰å†…å­˜æ± å¤§å°ï¼Œå‡å°‘æ± å­ç±»å‹æ•°é‡
+    static constexpr size_t POOL_SIZES[] = {
+        32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384
+    };
+    static constexpr size_t POOL_COUNT = sizeof(POOL_SIZES) / sizeof(POOL_SIZES[0]);
 
-    const size_t maxPoolSize_;
-    const size_t initialBlockSize_;
+    // ğŸ”§ ä¼˜åŒ–ï¼šé™ä½é™åˆ¶ï¼Œæ›´åŠ ä¿å®ˆ
+    static constexpr size_t MAX_TOTAL_MEMORY = 100 * 1024 * 1024;  // 100MBæ€»é™åˆ¶
+    static constexpr size_t MAX_BLOCK_SIZE = 64 * 1024;           // å•ä¸ªå—æœ€å¤§64KB
+    static constexpr size_t MAX_POOL_SIZE_PER_TYPE = 32;          // æ¯ç§å¤§å°æœ€å¤š32ä¸ªå—
 
-    // Í³¼ÆĞÅÏ¢
+    // ğŸ”§ ä¼˜åŒ–ï¼šä½¿ç”¨æ•°ç»„è€Œä¸æ˜¯mapï¼Œæé«˜æ€§èƒ½
+    moodycamel::ConcurrentQueue<void*> sizePools_[POOL_COUNT];
+    std::atomic<size_t> poolSizes_[POOL_COUNT];
+
+    // ğŸ”§ ä¼˜åŒ–ï¼šæ›´ç²¾ç¡®çš„å†…å­˜è·Ÿè¸ª
+    mutable std::atomic<size_t> totalMemoryUsed_{ 0 };     // å®é™…ä½¿ç”¨çš„å†…å­˜
+    mutable std::atomic<size_t> totalPoolMemory_{ 0 };     // æ± å­ä¸­çš„å†…å­˜
+
+    const size_t maxPoolSizePerType_;
+
+    // ç»Ÿè®¡ä¿¡æ¯
     mutable std::atomic<size_t> totalAllocated_{ 0 };
     mutable std::atomic<size_t> hitCount_{ 0 };
     mutable std::atomic<size_t> missCount_{ 0 };
 
-    // ±£»¤sizePoolsµÄ¶ÁĞ´Ëø
-    mutable std::shared_mutex poolsMutex_;
+    // ğŸ”§ ä¼˜åŒ–ï¼šæ›´è½»é‡çš„é”ï¼ˆå¦‚æœéœ€è¦çš„è¯ï¼‰
+    mutable std::atomic_flag initFlag_ = ATOMIC_FLAG_INIT;
 
-    // ÄÚ´æ¶ÔÆë¸¨Öúº¯Êı
-    static size_t alignSize(size_t size);
+    // ğŸ”§ ä¼˜åŒ–ï¼šå†…éƒ¨è¾…åŠ©å‡½æ•°
+    size_t getBestPoolIndex(size_t size) const;
+    size_t getBestPoolSize(size_t size) const;
+    bool shouldRejectAllocation(size_t size) const;
+    bool shouldRejectDeallocation(size_t size, size_t poolIndex) const;
 
-    // ¿çÆ½Ì¨¶ÔÆëÄÚ´æ·ÖÅä
-    static void* allocateAligned(size_t size, size_t alignment);
+    // è·¨å¹³å°å¯¹é½å†…å­˜åˆ†é… - ä¼˜åŒ–å¯¹é½ç­–ç•¥
+    static void* allocateAligned(size_t size);
     static void freeAligned(void* ptr);
-
-    // »ñÈ¡»ò´´½¨Ö¸¶¨´óĞ¡µÄ³Ø×Ó
-    moodycamel::ConcurrentQueue<void*>& getOrCreatePool(size_t size);
 };
 
-// ½Úµã³ØÀà - ¹ÜÀíMessageNodeºÍSendNode
+// èŠ‚ç‚¹æ± ç±» - ç®¡ç†MessageNodeå’ŒSendNode
 class NodeQueues {
-
-
 public:
     ~NodeQueues();
 
@@ -95,19 +114,19 @@ public:
         return &nodeQueues;
     }
 
-    // »ñÈ¡MessageNode£¬ÓÅÏÈ´Ó³Ø×ÓÈ¡£¬·ñÔòĞÂ½¨
+    // è·å–MessageNodeï¼Œä¼˜å…ˆä»æ± å­å–ï¼Œå¦åˆ™æ–°å»º
     MessageNode* acquireMessageNode(int64_t headLength = HEAD_TOTAL_LEN);
 
-    // »ñÈ¡SendNode£¬ÓÅÏÈ´Ó³Ø×ÓÈ¡£¬·ñÔòĞÂ½¨  
+    // è·å–SendNodeï¼Œä¼˜å…ˆä»æ± å­å–ï¼Œå¦åˆ™æ–°å»º  
     SendNode* acquireSendNode(const char* msg, int64_t max_length, short msgid);
 
-    // ÊÍ·ÅMessageNode£¬ÓÅÏÈ»Ø³Ø×Ó£¬Ê§°ÜÔòÉ¾³ı
+    // é‡Šæ”¾MessageNodeï¼Œä¼˜å…ˆå›æ± å­ï¼Œå¤±è´¥åˆ™åˆ é™¤
     void releaseMessageNode(MessageNode* node);
 
-    // ÊÍ·ÅSendNode£¬ÓÅÏÈ»Ø³Ø×Ó£¬Ê§°ÜÔòÉ¾³ı
+    // é‡Šæ”¾SendNodeï¼Œä¼˜å…ˆå›æ± å­ï¼Œå¤±è´¥åˆ™åˆ é™¤
     void releaseSendNode(SendNode* node);
 
-    // »ñÈ¡³Ø×ÓÍ³¼ÆĞÅÏ¢
+    // è·å–æ± å­ç»Ÿè®¡ä¿¡æ¯
     struct NodePoolStats {
         size_t messageNodePoolSize;
         size_t sendNodePoolSize;
@@ -118,34 +137,31 @@ public:
     };
     NodePoolStats getStats() const;
 
-    // ÇåÀí³Ø×ÓÖĞµÄ¹ıÆÚ½Úµã
+    // æ¸…ç†æ± å­ä¸­çš„è¿‡æœŸèŠ‚ç‚¹
     void cleanup();
-
-    // »ñÈ¡ÄÚ´æ³ØÊµÀı
-    MemoryPool& getMemoryPool() { return memoryPool_; }
 
 private:
     NodeQueues();
 
-    // ½ûÓÃ¿½±´ºÍ¸³Öµ
+    // ç¦ç”¨æ‹·è´å’Œèµ‹å€¼
     NodeQueues(const NodeQueues&) = delete;
     NodeQueues& operator=(const NodeQueues&) = delete;
 
-    // MessageNode³Ø×Ó
+    // MessageNodeæ± å­
     moodycamel::ConcurrentQueue<MessageNode*> messageNodePool_;
 
-    // SendNode³Ø×Ó  
+    // SendNodeæ± å­  
     moodycamel::ConcurrentQueue<SendNode*> sendNodePool_;
 
-    // ³Ø×Ó´óĞ¡ÏŞÖÆ
-    static constexpr size_t MAX_MESSAGE_NODE_POOL_SIZE = 5000;
-    static constexpr size_t MAX_SEND_NODE_POOL_SIZE = 5000;
+    // ğŸ”§ ä¼˜åŒ–ï¼šé™ä½æ± å­å¤§å°é™åˆ¶
+    static constexpr size_t MAX_MESSAGE_NODE_POOL_SIZE = 256;
+    static constexpr size_t MAX_SEND_NODE_POOL_SIZE = 256;
 
-    // µ±Ç°³Ø×Ó´óĞ¡¼ÆÊıÆ÷
+    // å½“å‰æ± å­å¤§å°è®¡æ•°å™¨
     std::atomic<size_t> messageNodePoolSize_{ 0 };
     std::atomic<size_t> sendNodePoolSize_{ 0 };
 
-    // Í³¼ÆĞÅÏ¢
+    // ç»Ÿè®¡ä¿¡æ¯
     mutable std::atomic<size_t> messageNodeHitCount_{ 0 };
     mutable std::atomic<size_t> messageNodeMissCount_{ 0 };
     mutable std::atomic<size_t> sendNodeHitCount_{ 0 };
@@ -153,15 +169,12 @@ private:
     mutable std::atomic<size_t> totalMessageNodesCreated_{ 0 };
     mutable std::atomic<size_t> totalSendNodesCreated_{ 0 };
 
-    // ÄÚ´æ³ØÊµÀı
-    MemoryPool memoryPool_;
-
-    // ÇåÀíMessageNode×´Ì¬
+    // æ¸…ç†MessageNodeçŠ¶æ€
     void resetMessageNode(MessageNode* node);
 
-    // ÇåÀíSendNode×´Ì¬  
+    // æ¸…ç†SendNodeçŠ¶æ€  
     void resetSendNode(SendNode* node);
 
-    // ÑéÖ¤½ÚµãÊÇ·ñ¿ÉÒÔ°²È«»ØÊÕ
+    // éªŒè¯èŠ‚ç‚¹æ˜¯å¦å¯ä»¥å®‰å…¨å›æ”¶
     bool isNodeSafeToRecycle(MessageNode* node) const;
 };

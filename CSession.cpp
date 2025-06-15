@@ -81,7 +81,8 @@ void CSession::start() {
 
                 // 接收消息体
                 bodySize = static_cast<size_t>(bodyLength);
-                bodyBuffer = new char[bodySize];
+                bodyBuffer = (char*)MemoryPool::getInstance()->allocate(bodySize);
+                //bodyBuffer = new char[bodySize];
                 if (!bodyBuffer) {
                     std::cerr << "Failed to allocate body buffer of size: " << bodySize << std::endl;
                     self->close();
@@ -100,16 +101,17 @@ void CSession::start() {
                     }
                     bodyRead += n;
                 }
-
+                bodySize = MemoryPool::alignSize(bodySize);
                 // 🔧 关键修复：正确的所有权转移和引用计数管理
                 MessageNode* node = NodeQueues::getInstance()->acquireMessageNode(HEAD_TOTAL_LEN);
+                //MessageNode* node = new MessageNode(HEAD_TOTAL_LEN);
                 // 设置节点数据 - 转移所有权
                 node->data = bodyBuffer;
                 node->id = msgId;
                 node->length = bodyLength;
                 node->bufferSize = bodySize;
                 node->session = self;
-
+                node->dataSource = MemorySource::MEMORY_POOL;
                 LogicSystem::getInstance()->postMessageToQueue(node);
 
                 bodyBuffer = nullptr;  // 数据所有权已转移给node
@@ -155,6 +157,8 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
         // 使用新的安全获取节点方法
         SendNode* nowNode = NodeQueues::getInstance()->acquireSendNode(msg, max_length, msgid);
 
+        //SendNode* nowNode = new SendNode(msg, max_length, msgid);
+
         if (nowNode) {
             // 节点已经是干净的，直接设置数据
             //nowNode->setSendNode(msg, max_length, msgid);
@@ -173,7 +177,12 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
                             boost::asio::buffer(nowNodes->data, nowNodes->length + HEAD_TOTAL_LEN),
                             boost::asio::use_awaitable);
 
-                        NodeQueues::getInstance()->releaseSendNode(nowNodes);
+                        if (nowNodes->dataSource == MemorySource::MEMORY_POOL) {
+                            NodeQueues::getInstance()->releaseSendNode(nowNodes);
+                        }
+                        else {
+                            delete nowNodes;
+                        }
 
                         nowNodes = nullptr;
                     }
@@ -185,10 +194,16 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
                                 boost::asio::buffer(queuedNode->data, queuedNode->length + HEAD_TOTAL_LEN),
                                 boost::asio::use_awaitable);
 
-                            if (queuedNode) {
-                                NodeQueues::getInstance()->releaseSendNode(queuedNode);
+                            if (queuedNode != nullptr) {
+                                if (queuedNode->dataSource == MemorySource::MEMORY_POOL) {
+                                    NodeQueues::getInstance()->releaseSendNode(queuedNode);
+                                }
+                                else {
+                                    delete queuedNode;
+                                }
+
+                                queuedNode = nullptr;
                             }
-                            queuedNode = nullptr;
                         }
                     }
                 }
@@ -215,6 +230,8 @@ void CSession::send(std::string msg, short msgid) {
         // 使用新的安全获取节点方法
         SendNode* nowNode = NodeQueues::getInstance()->acquireSendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
 
+        //SendNode* nowNode = new SendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
+
         if (nowNode) {
             // 节点已经是干净的，直接设置数据
             //nowNode->setSendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
@@ -234,7 +251,12 @@ void CSession::send(std::string msg, short msgid) {
                             boost::asio::buffer(nowNodes->data, nowNodes->length + HEAD_TOTAL_LEN),
                             boost::asio::use_awaitable);
 
-                        NodeQueues::getInstance()->releaseSendNode(nowNodes);
+                        if (nowNodes->dataSource == MemorySource::MEMORY_POOL) {
+                            NodeQueues::getInstance()->releaseSendNode(nowNodes);
+                        }
+                        else {
+                            delete nowNodes;
+                        }
 
                         nowNodes = nullptr;
                     }
@@ -247,10 +269,17 @@ void CSession::send(std::string msg, short msgid) {
                                 boost::asio::buffer(queuedNode->data, queuedNode->length + HEAD_TOTAL_LEN),
                                 boost::asio::use_awaitable);
 
-                            if (queuedNode) {
-                                NodeQueues::getInstance()->releaseSendNode(queuedNode);
+                            if (queuedNode!=nullptr) {
+                                if (queuedNode->dataSource == MemorySource::MEMORY_POOL) {
+                                    NodeQueues::getInstance()->releaseSendNode(queuedNode);
+                                }
+                                else {
+                                    delete queuedNode;
+                                }
+
+                                queuedNode = nullptr;
                             }
-                            queuedNode = nullptr;
+    
                         }
                     }
                 }
