@@ -38,14 +38,15 @@ void CSession::start() {
         size_t headerSize = sizeof(short) + sizeof(int64_t);
         size_t bodySize = 0;
 
+        headerBuffer = new char[HEAD_TOTAL_LEN];
+        if (!headerBuffer) {
+            headerBuffer = new char[HEAD_TOTAL_LEN];
+        }
+
         try {
             while (!self->isStop) {
                 // 接收消息头
-                headerBuffer = new char[HEAD_TOTAL_LEN];
-                if (!headerBuffer) {
-                    headerBuffer = new char[headerSize];
-                }
-
+                
                 size_t headerRead = 0;
                 while (headerRead < headerSize) {
                     size_t n = co_await self->socket.async_read_some(
@@ -68,8 +69,7 @@ void CSession::start() {
                 bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
                 if (headerBuffer) {
-                    delete[] headerBuffer;
-                    headerBuffer = nullptr;
+                    std::memset(headerBuffer,0,headerSize);
                 }
 
                 // 验证消息体长度的合理性
