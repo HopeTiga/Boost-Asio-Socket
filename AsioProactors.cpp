@@ -37,9 +37,7 @@ AsioProactors::AsioProactors(size_t minSize, size_t maxSize):minSize(minSize),ma
 					continue;
 				}
 
-				size_t newIndex = this->nowSize.load();    // 先获取当前大小作为新索引
-
-				this->nowSize.fetch_add(1);
+				size_t newIndex = this->nowSize.fetch_add(1);
 
 				std::unique_ptr<boost::asio::io_context::work> work = std::make_unique<boost::asio::io_context::work>(ioContexts[newIndex]);
 
