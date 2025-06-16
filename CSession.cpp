@@ -11,7 +11,7 @@
 
 
 CSession::CSession(boost::asio::io_context& ioContext, CServer* cserver) :socket(ioContext)
-, context(ioContext), server(cserver), isStop(false) {
+, context(ioContext), server(cserver), isStop(false){
 
 	boost::uuids::random_generator generator;
 
@@ -29,24 +29,22 @@ CSession::~CSession() {
 // CSession.cpp 中 start() 方法的修改
 
 void CSession::start() {
-    auto self = shared_from_this();
-    boost::asio::co_spawn(context, [self]() -> boost::asio::awaitable<void> {
-        char* headerBuffer = nullptr;
-        char* bodyBuffer = nullptr;
-        int64_t bodyLength = 0;
-        short msgId = 0;
-        size_t headerSize = sizeof(short) + sizeof(int64_t);
-        size_t bodySize = 0;
 
-        headerBuffer = new char[HEAD_TOTAL_LEN];
-        if (!headerBuffer) {
-            headerBuffer = new char[HEAD_TOTAL_LEN];
-        }
+    auto self = shared_from_this();
+
+    systemCoroutine = writerCoroutine();
+
+    boost::asio::co_spawn(context, [self]() -> boost::asio::awaitable<void> {
+        // 🔧 关键修复1：使用局部变量而非类成员，避免竞争条件
+        char headerBuffer[HEAD_TOTAL_LEN];
+        size_t headerSize = sizeof(short) + sizeof(int64_t);
 
         try {
-            while (!self->isStop) {
+            while (!self->isStop.load(std::memory_order_acquire)) {
+                // 🔧 关键修复2：重置缓冲区
+                std::memset(headerBuffer, 0, headerSize);
+
                 // 接收消息头
-                
                 size_t headerRead = 0;
                 while (headerRead < headerSize) {
                     size_t n = co_await self->socket.async_read_some(
@@ -63,36 +61,27 @@ void CSession::start() {
                 // 解析消息头
                 short rawMsgId = 0;
                 int64_t rawBodyLength = 0;
-                memcpy(&rawMsgId, headerBuffer, sizeof(short));
-                memcpy(&rawBodyLength, headerBuffer + sizeof(short), sizeof(int64_t));
-                msgId = boost::asio::detail::socket_ops::network_to_host_short(rawMsgId);
-                bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
+                std::memcpy(&rawMsgId, headerBuffer, sizeof(short));
+                std::memcpy(&rawBodyLength, headerBuffer + sizeof(short), sizeof(int64_t));
 
-                if (headerBuffer) {
-                    std::memset(headerBuffer,0,headerSize);
-                }
+                short msgId = boost::asio::detail::socket_ops::network_to_host_short(rawMsgId);
+                int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
-                // 验证消息体长度的合理性
-                if (bodyLength <= 0 || bodyLength > 1024 * 1024) {  // 🔧 添加最大长度检查
-                    std::cerr << "Invalid message body length: " << bodyLength << std::endl;
-                    self->close();
-                    co_return;
-                }
+                // 🔧 关键修复4：使用 RAII 智能指针管理内存
+                size_t bodySize = static_cast<size_t>(bodyLength);
+                std::unique_ptr<char[]> bodyBuffer = std::make_unique<char[]>(bodySize);
 
-                // 接收消息体
-                bodySize = static_cast<size_t>(bodyLength);
-                bodyBuffer = (char*)MemoryPool::getInstance()->allocate(bodySize);
-                //bodyBuffer = new char[bodySize];
                 if (!bodyBuffer) {
                     std::cerr << "Failed to allocate body buffer of size: " << bodySize << std::endl;
                     self->close();
                     co_return;
                 }
 
+                // 接收消息体
                 size_t bodyRead = 0;
                 while (bodyRead < bodySize) {
                     size_t n = co_await self->socket.async_read_some(
-                        boost::asio::buffer(bodyBuffer + bodyRead, bodySize - bodyRead),
+                        boost::asio::buffer(bodyBuffer.get() + bodyRead, bodySize - bodyRead),
                         boost::asio::use_awaitable);
 
                     if (n == 0) {
@@ -101,124 +90,93 @@ void CSession::start() {
                     }
                     bodyRead += n;
                 }
-                bodySize = MemoryPool::alignSize(bodySize);
-                // 🔧 关键修复：正确的所有权转移和引用计数管理
-                MessageNode* node = NodeQueues::getInstance()->acquireMessageNode(HEAD_TOTAL_LEN);
-                //MessageNode* node = new MessageNode(HEAD_TOTAL_LEN);
-                // 设置节点数据 - 转移所有权
-                node->data = bodyBuffer;
-                node->id = msgId;
-                node->length = bodyLength;
-                node->bufferSize = bodySize;
-                node->session = self;
-                node->dataSource = MemorySource::MEMORY_POOL;
-                LogicSystem::getInstance()->postMessageToQueue(node);
 
-                bodyBuffer = nullptr;  // 数据所有权已转移给node
-                node = nullptr;        // 清空本地引用
+                // 🔧 关键修复5：创建 MessageNode 时立即设置所有字段，避免竞争窗口
+                std::shared_ptr<MessageNode> node;
+                try {
+                    node = std::make_shared<MessageNode>(HEAD_TOTAL_LEN);
+
+                    // 转移所有权到 MessageNode
+                    node->data = bodyBuffer.release();  // 转移所有权
+                    node->id = msgId;
+                    node->length = bodyLength;
+                    node->bufferSize = bodySize;
+                    node->session = self;  // 保持 session 引用
+                    node->dataSource = MemorySource::NORMAL_NEW;
+
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Failed to create MessageNode: " << e.what() << std::endl;
+                    // bodyBuffer 会自动释放（如果 release() 没被调用）
+                    continue;
+                }
+
+                LogicSystem::getInstance()->postMessageToQueue(node);
             }
         }
         catch (const std::exception& e) {
             std::cerr << "Exception in CSession::start: " << e.what() << std::endl;
             self->close();
         }
+
         }, [self](std::exception_ptr p) {
-            // 异常处理保持不变...
             if (p) {
                 try {
                     std::rethrow_exception(p);
                 }
                 catch (const boost::system::system_error& e) {
-                    std::cerr << "CSession unhandled coroutine (Boost.System error): "
-                        << e.what() << " (Code: " << e.code() << " - " << e.code().message() << ")" << std::endl;
-                    if (self && !self->isStop) {
-                        self->handleError(e.code(), "Unhandled Boost.System exception in start coroutine");
+                    std::cerr << "CSession coroutine error: " << e.what()
+                        << " (Code: " << e.code() << ")" << std::endl;
+                    if (self && !self->isStop.load()) {
+                        self->handleError(e.code(), "Coroutine exception");
                     }
                 }
                 catch (const std::exception& e) {
-                    std::cerr << "CSession unhandled coroutine (std::exception): " << e.what() << std::endl;
-                    if (self && !self->isStop) {
-                        self->handleError(boost::system::errc::make_error_code(boost::system::errc::owner_dead), "Unhandled std::exception in start coroutine");
+                    std::cerr << "CSession coroutine std::exception: " << e.what() << std::endl;
+                    if (self && !self->isStop.load()) {
+                        self->handleError(
+                            boost::system::errc::make_error_code(boost::system::errc::owner_dead),
+                            "std::exception in coroutine"
+                        );
                     }
                 }
                 catch (...) {
-                    std::cerr << "CSession unhandled coroutine (unknown exception)." << std::endl;
-                    if (self && !self->isStop) {
-                        self->handleError(boost::system::errc::make_error_code(boost::system::errc::owner_dead), "Unhandled unknown exception in start coroutine");
+                    std::cerr << "CSession coroutine unknown exception." << std::endl;
+                    if (self && !self->isStop.load()) {
+                        self->handleError(
+                            boost::system::errc::make_error_code(boost::system::errc::owner_dead),
+                            "Unknown exception in coroutine"
+                        );
                     }
                 }
             }
             });
 }
 
-
 void CSession::send(char* msg, int64_t max_length, short msgid) {
     try {
         // 使用新的安全获取节点方法
-        SendNode* nowNode = NodeQueues::getInstance()->acquireSendNode(msg, max_length, msgid);
+        //std::shared_ptr<SendNode> nowNode = NodeQueues::getInstance()->acquireSendNode(msg, max_length, msgid);
 
-        //SendNode* nowNode = new SendNode(msg, max_length, msgid);
+        std::shared_ptr<SendNode> nowNode = std::make_shared<SendNode>(msg, max_length, msgid);
 
         if (nowNode) {
             // 节点已经是干净的，直接设置数据
-            //nowNode->setSendNode(msg, max_length, msgid);
 
             if (this->sendNodes.enqueue(nowNode)) {
+
+                if (!systemCoroutine.handle.promise().suspended_) {
+
+                    systemCoroutine.handle.resume();
+
+                }
+
                 nowNode = nullptr;
+
             }
 
-            auto self = shared_from_this();
-
-            boost::asio::co_spawn(context, [self,nowNodes = nowNode]() mutable -> boost::asio::awaitable<void> {
-                try {
-                    if (nowNodes != nullptr) {
-
-                        co_await boost::asio::async_write(self->socket,
-                            boost::asio::buffer(nowNodes->data, nowNodes->length + HEAD_TOTAL_LEN),
-                            boost::asio::use_awaitable);
-
-                        if (nowNodes->dataSource == MemorySource::MEMORY_POOL) {
-                            NodeQueues::getInstance()->releaseSendNode(nowNodes);
-                        }
-                        else {
-                            delete nowNodes;
-                        }
-
-                        nowNodes = nullptr;
-                    }
-                    // 处理队列中的其他消息
-                    SendNode* queuedNode = nullptr;
-                    while (self->sendNodes.try_dequeue(queuedNode)) {
-                        if (queuedNode) {
-                            co_await boost::asio::async_write(self->socket,
-                                boost::asio::buffer(queuedNode->data, queuedNode->length + HEAD_TOTAL_LEN),
-                                boost::asio::use_awaitable);
-
-                            if (queuedNode != nullptr) {
-                                if (queuedNode->dataSource == MemorySource::MEMORY_POOL) {
-                                    NodeQueues::getInstance()->releaseSendNode(queuedNode);
-                                }
-                                else {
-                                    delete queuedNode;
-                                }
-
-                                queuedNode = nullptr;
-                            }
-                        }
-                    }
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "CSession::send error: " << e.what() << std::endl;
-                    if (!self->isStop) {
-                        self->close();
-                    }
-                }
-                }, [self](std::exception_ptr p) {
-                    if (p && !self->isStop) {
-                        self->close();
-                    }
-                    });
         }
+
     }
     catch (std::exception& e) {
         std::cout << "CSession::send ERROR:" << e.what() << std::endl;
@@ -228,77 +186,88 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
 void CSession::send(std::string msg, short msgid) {
     try {
         // 使用新的安全获取节点方法
-        SendNode* nowNode = NodeQueues::getInstance()->acquireSendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
+        //std::shared_ptr<SendNode> nowNode = NodeQueues::getInstance()->acquireSendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
 
-        //SendNode* nowNode = new SendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
+		std::shared_ptr<SendNode> nowNode = std::make_shared<SendNode>(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
 
         if (nowNode) {
             // 节点已经是干净的，直接设置数据
-            //nowNode->setSendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
 
             if (this->sendNodes.enqueue(nowNode)) {
+
+                if (!systemCoroutine.handle.promise().suspended_) {
+
+                    systemCoroutine.handle.resume();
+
+                }
+
                 nowNode = nullptr;
+
             }
 
-            auto self = shared_from_this();
-
-            boost::asio::co_spawn(context, [self, nowNodes = nowNode]() mutable -> boost::asio::awaitable<void> {
-                try {
-
-                    if (nowNodes != nullptr) { 
-
-                        co_await boost::asio::async_write(self->socket,
-                            boost::asio::buffer(nowNodes->data, nowNodes->length + HEAD_TOTAL_LEN),
-                            boost::asio::use_awaitable);
-
-                        if (nowNodes->dataSource == MemorySource::MEMORY_POOL) {
-                            NodeQueues::getInstance()->releaseSendNode(nowNodes);
-                        }
-                        else {
-                            delete nowNodes;
-                        }
-
-                        nowNodes = nullptr;
-                    }
-
-                    // 处理队列中的其他消息
-                    SendNode* queuedNode = nullptr;
-                    while (self->sendNodes.try_dequeue(queuedNode)) {
-                        if (queuedNode) {
-                            co_await boost::asio::async_write(self->socket,
-                                boost::asio::buffer(queuedNode->data, queuedNode->length + HEAD_TOTAL_LEN),
-                                boost::asio::use_awaitable);
-
-                            if (queuedNode!=nullptr) {
-                                if (queuedNode->dataSource == MemorySource::MEMORY_POOL) {
-                                    NodeQueues::getInstance()->releaseSendNode(queuedNode);
-                                }
-                                else {
-                                    delete queuedNode;
-                                }
-
-                                queuedNode = nullptr;
-                            }
-    
-                        }
-                    }
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "CSession::send error: " << e.what() << std::endl;
-                    if (!self->isStop) {
-                        self->close();
-                    }
-                }
-                }, [self](std::exception_ptr p) {
-                    if (p && !self->isStop) {
-                        self->close();
-                    }
-                    });
         }
     }
     catch (std::exception& e) {
         std::cout << "CSession::send (outer try-catch) ERROR:" << e.what() << std::endl;
     }
+}
+
+// CSession.cpp 中 writerCoroutine() 方法的完整实现
+
+SystemCoroutine CSession::writerCoroutine() {
+    auto self = shared_from_this();
+
+    try {
+        for (;;) {
+            // 等待发送队列中有数据或者会话停止
+            while (self->sendNodes.size_approx() == 0 && !self->isStop.load(std::memory_order_acquire)) {
+                co_await SystemCoroutine::Awaitable();
+            }
+
+            // 如果会话已停止，处理完剩余消息后退出
+            if (self->isStop.load(std::memory_order_acquire)) {
+                // 处理队列中剩余的消息
+                while (self->sendNodes.size_approx() > 0) {
+                    std::shared_ptr<SendNode> nowNode = nullptr;
+                    if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+                        try {
+                            boost::asio::write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
+                        }
+                        catch (const std::exception& e) {
+                            std::cerr << "Error sending message during shutdown: " << e.what() << std::endl;
+                            break; // 发送失败，退出循环
+                        }
+                    }
+                }
+                co_return; // 退出协程
+            }
+
+            // 处理发送队列中的消息
+            std::shared_ptr<SendNode> nowNode = nullptr;
+            if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+                try {
+                    boost::asio::write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
+                }
+                catch (const boost::system::system_error& e) {
+                    std::cerr << "Socket error in writerCoroutine: " << e.what() << std::endl;
+                    self->handleError(e.code(), "Writer coroutine socket error");
+                    co_return; // 发生网络错误，退出协程
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Exception in writerCoroutine: " << e.what() << std::endl;
+                    co_return; // 发生其他异常，退出协程
+                }
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Fatal exception in writerCoroutine: " << e.what() << std::endl;
+        if (self && !self->isStop.load()) {
+            self->close();
+        }
+    }
+
+    co_return;
 }
 
 

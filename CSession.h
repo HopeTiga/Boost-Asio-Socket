@@ -4,6 +4,7 @@
 #include <boost/asio.hpp>
 #include <boost/lockfree/queue.hpp>
 #include "concurrentqueue.h"
+#include "SystemCoroutine.h"
 
 extern class CServer;
 
@@ -25,6 +26,8 @@ public:
 
 private:
 
+	SystemCoroutine writerCoroutine();
+
 	boost::asio::ip::tcp::socket socket;
 
 	boost::asio::io_context& context;
@@ -37,7 +40,9 @@ private:
 
 	void close();
 
-	moodycamel::ConcurrentQueue<SendNode*> sendNodes{ 1 };
+	SystemCoroutine systemCoroutine;
+
+	moodycamel::ConcurrentQueue<std::shared_ptr<SendNode>> sendNodes{ 1 };
 
 	void start();
 

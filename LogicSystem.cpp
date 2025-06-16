@@ -1,5 +1,4 @@
 ﻿#include "LogicSystem.h"
-#include "SystemCoroutine.h"
 #include "NodeQueues.h"
 #include <chrono>
 
@@ -18,6 +17,7 @@ void LogicSystem::initializeThreads() {
 		threads.emplace_back(std::thread([this,i]() {
 			systemCoroutines[i] = processMessage(shared_from_this());
 			systemCoroutines[i].handle.promise().storeIndex(i);
+            systemCoroutines[i].setQueue(&readyQueue);
 			}));
 	}
 
@@ -87,7 +87,7 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
 
         if (isStop) {
             while (!logicSystem->messageNodes.size_approx() == 0) {
-                MessageNode* nowNode = nullptr;
+                std::shared_ptr<MessageNode> nowNode = nullptr;
                 logicSystem->messageNodes.try_dequeue(nowNode);
 
                 if (nowNode != nullptr) {
@@ -110,26 +110,17 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
 
                         metrics.totalProcessingTime += (end - start);
                         metrics.totalProcessed++;
+
                     }
 
                     metrics.pendingMessages--;
 
-                    if(nowNode!=nullptr) {
-                        if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
-                            NodeQueues::getInstance()->releaseMessageNode(nowNode);
-                        }
-                        else {
-                            delete nowNode;
-                        }
-
-                        nowNode = nullptr;
-                    }
                 }
             }
             co_return;
         }
 
-        MessageNode* nowNode = nullptr;
+        std::shared_ptr<MessageNode> nowNode = nullptr;
         logicSystem->messageNodes.try_dequeue(nowNode);
 
         if (nowNode != nullptr) {
@@ -156,17 +147,6 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
 
             metrics.pendingMessages--;
 
-            if (nowNode != nullptr) {
-
-                if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
-                    NodeQueues::getInstance()->releaseMessageNode(nowNode);
-                }
-                else {
-                    delete nowNode;
-                }
-
-                nowNode = nullptr;
-            }
         }
     }
 
@@ -182,7 +162,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
 
         if (isStop) {
             while (!logicSystem->messageNodes.size_approx() == 0) {
-                MessageNode* nowNode = nullptr;
+                std::shared_ptr<MessageNode> nowNode = nullptr;
                 logicSystem->messageNodes.try_dequeue(nowNode);
 
                 if (nowNode != nullptr) {
@@ -208,22 +188,12 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
                     }
 
                     metrics.pendingMessages--;
-                    if (nowNode != nullptr) {
-                        if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
-                            NodeQueues::getInstance()->releaseMessageNode(nowNode);
-                        }
-                        else {
-                            delete nowNode;
-                        }
-
-                        nowNode = nullptr;
-                    }
                 }
             }
             return;
         }
 
-        MessageNode* nowNode = nullptr;
+        std::shared_ptr<MessageNode> nowNode = nullptr;
         logicSystem->messageNodes.try_dequeue(nowNode);
 
         if (nowNode != nullptr) {
@@ -250,23 +220,13 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
 
             metrics.pendingMessages--;
 
-            if (nowNode != nullptr) {
-                if (nowNode->dataSource == MemorySource::MEMORY_POOL) {
-                    NodeQueues::getInstance()->releaseMessageNode(nowNode);
-                }
-                else {
-                    delete nowNode;
-                }
-
-                nowNode = nullptr;
-            }
         }
     }
 
     return;
 }
 
-void LogicSystem::postMessageToQueue(MessageNode* node) {
+void LogicSystem::postMessageToQueue(std::shared_ptr<MessageNode> node) {
 
 	messageNodes.enqueue(node);
 
@@ -274,7 +234,7 @@ void LogicSystem::postMessageToQueue(MessageNode* node) {
 
 	int readyIndex;
 
-	if (metrics.readyQueue.try_dequeue(readyIndex)) {
+	if (readyQueue.pop(readyIndex)) {
 
         if (readyIndex < 0 || readyIndex >= nowSize.load() - 1) return;
 

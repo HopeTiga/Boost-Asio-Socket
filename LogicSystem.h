@@ -2,11 +2,10 @@
 #include "const.h"
 #include "MessageNodes.h"
 #include "CSession.h"
-#include <queue>
+#include <boost/lockfree/queue.hpp>
 #include "concurrentqueue.h"
+#include "SystemCoroutine.h"
 #include "Singleton.h"
-
-class SystemCoroutine;
 
 struct MessagePressureMetrics {
 	std::atomic<size_t> pendingMessages{ 0 };        // 待处理消息计数
@@ -14,7 +13,6 @@ struct MessagePressureMetrics {
 	std::atomic<size_t> busyCoroutines{ 0 };         // 忙碌的协程数
 	std::atomic<double> avgProcessingTime{ 0.0 };    // 平均处理时间(毫秒)
 	std::atomic<size_t> totalProcessingTime{ 0 };    // 峰值待处理消息数
-	moodycamel::ConcurrentQueue<int> readyQueue;
 
 	// 计算压力指标
 	double getMessagePressure(size_t totalCoroutines) const {
@@ -43,7 +41,7 @@ public:
 
 	void operator=(const LogicSystem& logic) = delete;
 
-	void postMessageToQueue(MessageNode* node);
+	void postMessageToQueue(std::shared_ptr<MessageNode> node);
 
 	void initializeThreads();
 
@@ -59,7 +57,7 @@ private:
 
 	std::mutex mutexs;
 
-	moodycamel::ConcurrentQueue<MessageNode*> messageNodes;
+	moodycamel::ConcurrentQueue<std::shared_ptr<MessageNode>> messageNodes;
 
 	std::map<short, std::function<void(std::shared_ptr<CSession>,
 		const short& msg_id, const std::string& msg_data)>> callBackFunctions;
@@ -84,6 +82,8 @@ private:
 	std::thread metricsThread;
 
 	std::chrono::milliseconds updateInterval{ 10000 };
+
+	boost::lockfree::queue<int> readyQueue;
 
 };
 
