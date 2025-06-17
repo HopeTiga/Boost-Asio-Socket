@@ -19,7 +19,7 @@ struct MessagePressureMetrics {
 		if (totalCoroutines == 0) return 0.0;
 
 		// 基于多个维度计算压力
-		double pendingPressure = static_cast<double>(pendingMessages.load()) / (totalCoroutines * 1); // 假设每个协程能缓冲5个消息
+		double pendingPressure = static_cast<double>(pendingMessages.load()) / (totalCoroutines * 3000); // 假设每个协程能缓冲5个消息
 		double busyRatio = static_cast<double>(busyCoroutines.load()) / totalCoroutines;
 		double timePressure = std::min(1.0, avgProcessingTime.load() / 10.0); // 10ms为基准
 

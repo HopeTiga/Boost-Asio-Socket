@@ -3,6 +3,7 @@
 #include <iostream>
 #include <algorithm>
 #include <numeric>
+#include "Utils.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -78,9 +79,9 @@ void AdvancedSystemMonitor::startMonitoring() {
             sysctl(mib, 2, &sysInfo.totalMemory, &length, NULL, 0);
 #endif
         }
-
+        LOG_INFO("AdvancedSystemMonitor started monitoring.");
         monitoringThread = std::thread([this]() { monitoringLoop(); });
-        std::cout << "AdvancedSystemMonitor started" << std::endl;
+
     }
 }
 
@@ -90,7 +91,7 @@ void AdvancedSystemMonitor::stopMonitoring() {
         if (monitoringThread.joinable()) {
             monitoringThread.join();
         }
-        std::cout << "AdvancedSystemMonitor stopped" << std::endl;
+		LOG_INFO("AdvancedSystemMonitor stopped monitoring.");
     }
 }
 
@@ -136,7 +137,7 @@ void AdvancedSystemMonitor::updateIOStats() {
     // 简单的IO压力估算 - 基于网络连接数
     // 在实际应用中，可以监控更多IO指标
     size_t connections = networkConnections.load();
-    double pressure = std::min(1.0, connections / 40000.0); // 假设1000个连接为满负载
+    double pressure = std::min(1.0, connections / 20000.0); // 假设1000个连接为满负载
     ioUsage.store(pressure);
 }
 

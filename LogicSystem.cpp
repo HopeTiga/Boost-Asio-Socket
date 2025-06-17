@@ -1,6 +1,6 @@
 ﻿#include "LogicSystem.h"
-#include "NodeQueues.h"
 #include <chrono>
+#include "Utils.h"
 
 MessagePressureMetrics metrics;
 
@@ -16,8 +16,10 @@ void LogicSystem::initializeThreads() {
 	for (int i = 0; i < nowSize; i++) {
 		threads.emplace_back(std::thread([this,i]() {
 			systemCoroutines[i] = processMessage(shared_from_this());
-			systemCoroutines[i].handle.promise().storeIndex(i);
+            systemCoroutines[i].handle.promise().setTargetQueue(&readyQueue);
             systemCoroutines[i].setQueue(&readyQueue);
+			systemCoroutines[i].handle.promise().storeIndex(i);
+  
 			}));
 	}
 
@@ -25,9 +27,13 @@ void LogicSystem::initializeThreads() {
 		
 		while (!isStop) {
 
-			double pressures = metrics.getMessagePressure(this->nowSize);
+            double pressures = metrics.getMessagePressure(this->nowSize);
 
-			if (pressures > 0.6) {
+            LOG_INFO("LogicSystem: Monitoring system Threads: %u", nowSize.load());
+
+			LOG_INFO("LogicSystem: Message Pressure: %0.2f", pressures);
+
+			if (pressures > 0.7) {
 
 				std::lock_guard<std::mutex> lock(mutexs);
 
@@ -46,7 +52,7 @@ void LogicSystem::initializeThreads() {
 					processMessageTemporary(shared_from_this());
 					}));
 
-
+                threads[newIndex].detach();
 			}
 
 			std::this_thread::sleep_for(updateInterval);
@@ -93,8 +99,10 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
                 if (nowNode != nullptr) {
                     // 🔧 处理消息后释放引用
                     if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
-                        std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
-                    }
+
+						LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
+
+                        }
                     else {
                         // 处理消息
                         long long start = std::chrono::floor<std::chrono::milliseconds>(
@@ -125,7 +133,9 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
 
         if (nowNode != nullptr) {
             if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
-                std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
+
+                LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
+
             }
             else {
                 // 处理消息
@@ -157,6 +167,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
     for (;;) {
         while (logicSystem->messageNodes.size_approx() == 0 && !isStop) {
             metrics.busyCoroutines--;
+            this->nowSize.fetch_sub(1);
             return;
         }
 
@@ -167,7 +178,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
 
                 if (nowNode != nullptr) {
                     if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
-                        std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
+                        LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
                     }
                     else {
                         // 处理消息
@@ -199,7 +210,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
         if (nowNode != nullptr) {
 
             if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
-                std::cout << "The MessageID " << nowNode->id << " has no corresponding CallBackFunctions" << std::endl;
+                LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
             }
             else {
                 // 处理消息

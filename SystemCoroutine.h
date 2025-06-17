@@ -2,6 +2,7 @@
 #include <coroutine>
 #include <iostream>
 #include <boost/lockfree/queue.hpp>
+#include "Utils.h"
 
 class SystemCoroutine {
 public:
@@ -75,7 +76,7 @@ public:
                 this->handle.promise().suspended_.store(true, std::memory_order_release);
             }
             catch (std::exception& e) {
-                std::cout << "SystemCoroutine::Awaitabl::await_resume Error : " << e.what() << "\r\n";
+				LOG_ERROR("SystemCoroutine::Awaitabl::await_resume Error : %s" , e.what());
             }
         }
 

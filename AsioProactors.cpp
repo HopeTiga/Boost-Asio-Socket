@@ -1,6 +1,7 @@
 #include "AsioProactors.h"
 #include "AdvancedSystemMonitor.h"
-
+#include <iostream>
+#include "Utils.h"
 
 AsioProactors::AsioProactors(size_t minSize, size_t maxSize):minSize(minSize),maxSize(maxSize),nowSize(minSize)
 , ioContexts(maxSize),works(maxSize),threads(maxSize), ioPressures(maxSize), isStop(false){
@@ -25,6 +26,10 @@ AsioProactors::AsioProactors(size_t minSize, size_t maxSize):minSize(minSize),ma
 		while (!isStop) {
 
 			double pressures =  AdvancedSystemMonitor::getInstance()->getSystemLoadAverage();
+
+			LOG_INFO("AsioProactors: Monitoring system Threads: %d" , nowSize.load());
+
+			LOG_INFO("AsioProactors: System Load Average: %0.2f" , pressures);
 
 			if (pressures > 0.6) {
 

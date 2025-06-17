@@ -1,5 +1,6 @@
 #include "CServer.h"
 #include "LogicSystem.h"
+#include "Utils.h"
 
 
 //tcp::v4()表示接收的ip范围,port代表地址;
@@ -10,13 +11,14 @@ CServer::CServer(boost::asio::io_context& ioContext, unsigned short& port,size_t
 	LogicSystem::getInstance()->initializeThreads();
 
 	c_accept.set_option(boost::asio::ip::tcp::no_delay(true));
-	c_accept.set_option(boost::asio::socket_base::reuse_address(true));
 
 	startAccept();
 }
 
 void CServer::removeSession(std::string sessionId)
 {
+	LOG_WARNING("CServer::removeSession() sessionId: %s", sessionId.c_str());
+
 	size_t hashValue = std::hash<std::string>{}(sessionId);
 
 	hashValue = hashValue % this->hashSize;
@@ -34,7 +36,7 @@ void CServer::removeSession(std::string sessionId)
 
 void CServer::startAccept() {
 
-	std::cout << "CServer::startAccept()" << std::endl;
+	LOG_INFO("CServer::startAccept");
 
 	boost::asio::co_spawn(c_ioContext, [this]() ->boost::asio::awaitable<void> {
 
@@ -45,7 +47,7 @@ void CServer::startAccept() {
 
 			co_await c_accept.async_accept(session->getSocket(), boost::asio::use_awaitable);
 
-			std::cout << "Session Async_accpet IP: " << session->getSocket().remote_endpoint().address().to_v4().to_string() << ":" << session->getSocket().remote_endpoint().port() << std::endl;
+			//std::cout << "Session Async_accpet IP: " << session->getSocket().remote_endpoint().address().to_v4().to_string() << ":" << session->getSocket().remote_endpoint().port() << std::endl;
 
 			size_t hashValue = std::hash<std::string>{}(session->getSessionId());
 
@@ -70,14 +72,14 @@ void CServer::startAccept() {
 					std::rethrow_exception(p);
 				}
 				catch (const boost::system::system_error& e) {
-					std::cerr << "Server client_handler coroutine (Boost.System error): "
-						<< e.what() << " (Code: " << e.code() << " - " << e.code().message() << ")" << std::endl;
+					LOG_ERROR("Server client_handler coroutine (Boost.System error): %s", e.what());
+
 				}
 				catch (const std::exception& e) {
-					std::cerr << "Server client_handler coroutine (std::exception): " << e.what() << std::endl;
+					LOG_ERROR("Server client_handler coroutine (std::exception): %s", e.what());
 				}
 				catch (...) {
-					std::cerr << "Server client_handler coroutine (unknown exception)." << std::endl;
+					LOG_ERROR("Server client_handler coroutine (unknown exception).");
 				}
 			}
 

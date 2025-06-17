@@ -36,9 +36,9 @@ public:
     // ≈‰÷√º‡øÿ≤Œ ˝
     struct MonitorConfig {
         std::chrono::milliseconds updateInterval{ 1000 };
-        double cpuWeight = 0.4;
-        double memoryWeight = 0.3;
-        double threadWeight = 0.2;
+        double cpuWeight = 0.1;
+        double memoryWeight = 0.5;
+        double threadWeight = 0.5;
         double ioWeight = 0.1;
     };
 

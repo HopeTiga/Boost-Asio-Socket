@@ -1,6 +1,7 @@
 ﻿#include<csignal>
 #include"const.h"
 #include "CServer.h"
+#include "Utils.h"
 
 
 int main()
@@ -31,19 +32,17 @@ int main()
 
 			});
 
-
-		// 添加启动LOGO
-		std::cout << R"(
+		LOG_INFO(R"(
              _____  _____  ____    _____  ____   _____    ____   _    _  _______  _____  _   _  ______ 
      /\     / ____||_   _|/ __ \  / ____|/ __ \ |  __ \  / __ \ | |  | ||__   __||_   _|| \ | ||  ____|
     /  \   | (___    | | | |  | || |    | |  | || |__) || |  | || |  | |   | |     | |  |  \| || |__   
    / /\ \   \___ \   | | | |  | || |    | |  | ||  _  / | |  | || |  | |   | |     | |  | . ` ||  __|  
   / ____ \  ____) | _| |_| |__| || |____| |__| || | \ \ | |__| || |__| |   | |    _| |_ | |\  || |____ 
  /_/    \_\|_____/ |_____|\____/  \_____|\____/ |_|  \_\ \____/  \____/    |_|   |_____||_| \_||______|                                                                                                                                                                                               
-    )" << std::endl;
-		// ... existing code ...
+    )");
+	
 
-		std::cout << "The AsioCoroutine is start in " << port << std::endl;
+		LOG_INFO("AsioCoroutine is start in %s:%d", host.c_str(), port);
 
 		CServer server(ioContexts, port);
 

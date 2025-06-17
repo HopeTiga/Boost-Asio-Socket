@@ -1,7 +1,7 @@
 #include "MessageNodes.h"
 #include "FastMemcpy_Avx.h"
-#include "NodeQueues.h"
 #include <iostream>
+#include "Utils.h"
 
 MessageNode::MessageNode(int64_t headLength)
     : headLength(static_cast<short>(headLength)),
@@ -32,10 +32,7 @@ void MessageNode::clear() {
     if (data) {
         // 🔧 修复：根据内存来源使用正确的释放方法
         if (dataSource == MemorySource::MEMORY_POOL) {
-            if (!MemoryPool::getInstance()->deallocate(data, bufferSize)) {
-                // ✅ 修复：内存池分配的内存使用 free() 释放
-                free(data);
-            }
+            free(data);
         }
         else {
             // ✅ 普通 new[] 分配的内存使用 delete[] 释放
@@ -76,10 +73,7 @@ bool SendNode::safeSetSendNode(const char* msg, int64_t max_length, short msgid)
     if (data) {
         // 🔧 修复：根据内存来源正确释放旧数据
         if (dataSource == MemorySource::MEMORY_POOL) {
-            if (!MemoryPool::getInstance()->deallocate(data, bufferSize)) {
-                // ✅ 修复：内存池分配的内存使用 free() 释放
-                free(data);
-            }
+            free(data);
         }
         else {
             // ✅ 普通 new[] 分配的内存使用 delete[] 释放
@@ -99,22 +93,12 @@ bool SendNode::safeSetSendNode(const char* msg, int64_t max_length, short msgid)
     size_t total_size = max_length + HEAD_TOTAL_LEN;
     bufferSize = total_size;
 
-    // 🔧 优化：尝试从内存池分配
-    data = static_cast<char*>(MemoryPool::getInstance()->allocate(total_size));
+    data = new(std::nothrow) char[total_size];
+    dataSource = MemorySource::NORMAL_NEW;
+    bufferSize = total_size;
 
-    if (data) {
-        dataSource = MemorySource::MEMORY_POOL;
-        bufferSize = MemoryPool::alignSize(total_size);
-    }
-    else {
-        // 内存池分配失败，回退到普通分配
-        data = new(std::nothrow) char[total_size];
-        dataSource = MemorySource::NORMAL_NEW;
-        bufferSize = total_size;
-
-        if (!data) {
-            return false;
-        }
+    if (!data) {
+        return false;
     }
 
     // 🔧 修复：确保使用正确的内存拷贝方法
@@ -124,13 +108,11 @@ bool SendNode::safeSetSendNode(const char* msg, int64_t max_length, short msgid)
         std::memcpy(data + HEAD_TOTAL_LEN, msg, max_length);
     }
     catch (const std::exception& e) {
-        std::cerr << "Memory copy failed in safeSetSendNode: " << e.what() << std::endl;
+		LOG_ERROR("Memory copy failed in safeSetSendNode: %s" , e.what());
 
         // 清理已分配的内存
         if (dataSource == MemorySource::MEMORY_POOL) {
-            if (!MemoryPool::getInstance()->deallocate(data, bufferSize)) {
-                free(data);
-            }
+            free(data);
         }
         else {
             delete[] data;
@@ -150,10 +132,7 @@ void SendNode::clear() {
     if (data) {
         // 🔧 修复：根据内存来源正确释放
         if (dataSource == MemorySource::MEMORY_POOL) {
-            if (!MemoryPool::getInstance()->deallocate(data, bufferSize)) {
-                // ✅ 修复：内存池分配的内存使用 free() 释放
-                free(data);
-            }
+            free(data);
         }
         else {
             // ✅ 普通 new[] 分配的内存使用 delete[] 释放
