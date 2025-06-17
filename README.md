@@ -82,29 +82,6 @@ AsioCoroutine 是一个基于 C++20 协程和 Boost.Asio 构建的高性能异�
   - Boost 1.75+ (asio, system, uuid)
   - CMake 3.15+ (可选)
 
-### 编译步骤
-
-#### Windows (Visual Studio)
-```bash
-# 克隆项目
-git clone <repository-url>
-cd AsioCoroutine
-
-# 使用 Visual Studio 打开 AsioCoroutine.sln
-# 或使用 MSBuild
-msbuild AsioCoroutine.vcxproj /p:Configuration=Release
-```
-
-#### Linux/macOS
-```bash
-# 安装依赖 (Ubuntu/Debian)
-sudo apt-get install libboost-all-dev cmake
-
-# 编译项目
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-```
 
 ### 配置文件
 创建 `config.ini` 文件：
