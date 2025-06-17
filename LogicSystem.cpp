@@ -19,7 +19,6 @@ void LogicSystem::initializeThreads() {
             systemCoroutines[i].handle.promise().setTargetQueue(&readyQueue);
             systemCoroutines[i].setQueue(&readyQueue);
 			systemCoroutines[i].handle.promise().storeIndex(i);
-  
 			}));
 	}
 
@@ -87,8 +86,11 @@ LogicSystem::~LogicSystem() {
 SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
     for (;;) {
         while (logicSystem->messageNodes.size_approx() == 0 && !isStop) {
+
             metrics.busyCoroutines--;
+		
             co_await SystemCoroutine::Awaitable();
+
         }
 
         if (isStop) {
@@ -96,7 +98,7 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
                 std::shared_ptr<MessageNode> nowNode = nullptr;
                 logicSystem->messageNodes.try_dequeue(nowNode);
 
-                if (nowNode != nullptr) {
+                if (nowNode != nullptr && nowNode->session!=nullptr) {
                     // 🔧 处理消息后释放引用
                     if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
 
@@ -109,8 +111,7 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
                             std::chrono::system_clock::now()
                         ).time_since_epoch().count();
 
-                        std::string msgData(nowNode->data, nowNode->length);
-                        callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
+                        callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
 
                         long long end = std::chrono::floor<std::chrono::milliseconds>(
                             std::chrono::system_clock::now()
@@ -131,7 +132,7 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
         std::shared_ptr<MessageNode> nowNode = nullptr;
         logicSystem->messageNodes.try_dequeue(nowNode);
 
-        if (nowNode != nullptr) {
+        if (nowNode != nullptr && nowNode->session != nullptr) {
             if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
 
                 LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
@@ -143,9 +144,8 @@ SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSy
                     std::chrono::system_clock::now()
                 ).time_since_epoch().count();
 
-                std::string msgData(nowNode->data, nowNode->length);
-                callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
 
+                callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
 
                 long long end = std::chrono::floor<std::chrono::milliseconds>(
                     std::chrono::system_clock::now()
@@ -176,7 +176,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
                 std::shared_ptr<MessageNode> nowNode = nullptr;
                 logicSystem->messageNodes.try_dequeue(nowNode);
 
-                if (nowNode != nullptr) {
+                if (nowNode != nullptr && nowNode->session != nullptr) {
                     if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
                         LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
                     }
@@ -185,10 +185,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
                         long long start = std::chrono::floor<std::chrono::milliseconds>(
                             std::chrono::system_clock::now()
                         ).time_since_epoch().count();
-
-                        std::string msgData(nowNode->data, nowNode->length);
-                        callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
-
+                        callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
 
                         long long end = std::chrono::floor<std::chrono::milliseconds>(
                             std::chrono::system_clock::now()
@@ -207,7 +204,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
         std::shared_ptr<MessageNode> nowNode = nullptr;
         logicSystem->messageNodes.try_dequeue(nowNode);
 
-        if (nowNode != nullptr) {
+        if (nowNode != nullptr && nowNode->session != nullptr) {
 
             if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
                 LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
@@ -218,8 +215,7 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
                     std::chrono::system_clock::now()
                 ).time_since_epoch().count();
 
-                std::string msgData(nowNode->data, nowNode->length);
-                callBackFunctions[nowNode->id](nowNode->session, nowNode->id, msgData);
+                callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
 
                 long long end = std::chrono::floor<std::chrono::milliseconds>(
                     std::chrono::system_clock::now()

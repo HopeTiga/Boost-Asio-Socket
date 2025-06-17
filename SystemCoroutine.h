@@ -15,8 +15,8 @@ public:
         // 添加队列指针成员
         boost::lockfree::queue<int>* targetQueue = nullptr;
 
-        auto initial_suspend() { return std::suspend_always{}; }
-        auto final_suspend() noexcept { return std::suspend_always{}; }
+        auto initial_suspend() { return std::suspend_never{}; }
+        auto final_suspend() noexcept { return std::suspend_never{}; }
         SystemCoroutine get_return_object() {
             std::coroutine_handle<promise_type> handle = std::coroutine_handle<promise_type>::from_promise(*this);
             return SystemCoroutine(handle);

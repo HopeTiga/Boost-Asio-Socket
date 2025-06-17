@@ -24,6 +24,8 @@ public:
 
 	void send(std::string msg, short msgid);
 
+	void close();
+
 private:
 
 	SystemCoroutine writerCoroutine();
@@ -37,8 +39,6 @@ private:
 	CServer* server;
 
 	std::atomic<bool> isStop;
-
-	void close();
 
 	SystemCoroutine systemCoroutine;
 

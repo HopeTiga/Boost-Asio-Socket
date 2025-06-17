@@ -23,20 +23,20 @@ CSession::CSession(boost::asio::io_context& ioContext, CServer* cserver) :socket
 }
 
 CSession::~CSession() {
-    
+    close();
 }
 
 // CSession.cpp 中 start() 方法的修改
 
 void CSession::start() {
 
-    auto self = shared_from_this();
-
     systemCoroutine = writerCoroutine();
+
+    auto self = shared_from_this();
 
     boost::asio::co_spawn(context, [self]() -> boost::asio::awaitable<void> {
         // 🔧 关键修复1：使用局部变量而非类成员，避免竞争条件
-        char* headerBuffer =(char*) malloc(HEAD_TOTAL_LEN);
+        char headerBuffer[HEAD_TOTAL_LEN];
         size_t headerSize = sizeof(short) + sizeof(int64_t);
 
         try {
@@ -69,7 +69,7 @@ void CSession::start() {
 
                 // 🔧 关键修复4：使用 RAII 智能指针管理内存
                 size_t bodySize = static_cast<size_t>(bodyLength);
-                char* bodyBuffer = (char*)malloc(bodySize);
+                char* bodyBuffer = new char[bodySize];
 
                 if (!bodyBuffer) {
 					LOG_ERROR("Failed to allocate body buffer of size: %zu", bodySize);
@@ -102,7 +102,6 @@ void CSession::start() {
                     node->length = bodyLength;
                     node->bufferSize = bodySize;
                     node->session = self;  // 保持 session 引用
-                    node->dataSource = MemorySource::NORMAL_NEW;
 
                 }
                 catch (const std::exception& e) {
@@ -116,35 +115,42 @@ void CSession::start() {
         }
         catch (const std::exception& e) {
 			LOG_ERROR("Exception in CSession::start: %s", e.what());
-            free(headerBuffer);
-			headerBuffer = nullptr;
             self->close();
         }
 
-        }, [self](std::exception_ptr p) {
+        }, [this](std::exception_ptr p) {
             if (p) {
                 try {
                     std::rethrow_exception(p);
                 }
                 catch (const boost::system::system_error& e) {
-					LOG_ERROR("CSession coroutine error: %s (Code: %s)", e.what(), e.code().value());
-                    if (self && !self->isStop.load()) {
-                        self->handleError(e.code(), "Coroutine exception");
+                    // 🔧 改进：根据错误类型给出不同的日志级别
+                    if (e.code() == boost::asio::error::eof ||
+                        e.code() == boost::asio::error::connection_reset) {
+                        LOG_INFO("Client disconnected: %s, Session: %s", e.what(), sessionID.c_str());
+                    }
+                    else {
+                        LOG_ERROR("CSession coroutine error: %s (Code: %d), Session: %s",
+                            e.what(), e.code().value(), sessionID.c_str());
+                    }
+
+                    if (this && !this->isStop.load()) {
+                        this->handleError(e.code(), "Coroutine exception");
                     }
                 }
                 catch (const std::exception& e) {
-					LOG_ERROR("CSession coroutine std::exception: %s", e.what());
-                    if (self && !self->isStop.load()) {
-                        self->handleError(
+                    LOG_ERROR("CSession coroutine std::exception: %s, Session: %s", e.what(), sessionID.c_str());
+                    if (this && !this->isStop.load()) {
+                        this->handleError(
                             boost::system::errc::make_error_code(boost::system::errc::owner_dead),
                             "std::exception in coroutine"
                         );
                     }
                 }
                 catch (...) {
-					LOG_ERROR("CSession coroutine unknown exception.");
-                    if (self && !self->isStop.load()) {
-                        self->handleError(
+                    LOG_ERROR("CSession coroutine unknown exception, Session: %s", sessionID.c_str());
+                    if (this && !this->isStop.load()) {
+                        this->handleError(
                             boost::system::errc::make_error_code(boost::system::errc::owner_dead),
                             "Unknown exception in coroutine"
                         );
@@ -216,23 +222,23 @@ void CSession::send(std::string msg, short msgid) {
 // CSession.cpp 中 writerCoroutine() 方法的完整实现
 
 SystemCoroutine CSession::writerCoroutine() {
-    auto self = shared_from_this();
 
     try {
         for (;;) {
             // 等待发送队列中有数据或者会话停止
-            while (self->sendNodes.size_approx() == 0 && !self->isStop.load(std::memory_order_acquire)) {
+            while (this->sendNodes.size_approx() == 0 && !this->isStop.load(std::memory_order_acquire)) {
                 co_await SystemCoroutine::Awaitable();
             }
 
             // 如果会话已停止，处理完剩余消息后退出
-            if (self->isStop.load(std::memory_order_acquire)) {
+            if (this->isStop.load(std::memory_order_acquire)) {
                 // 处理队列中剩余的消息
-                while (self->sendNodes.size_approx() > 0) {
+                while (this->sendNodes.size_approx() > 0) {
                     std::shared_ptr<SendNode> nowNode = nullptr;
-                    if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+                    if (this->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
                         try {
-                            boost::asio::write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
+                            boost::asio::write(this->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
+  
                         }
                         catch (const std::exception& e) {
 							LOG_ERROR("Error sending message during shutdown: %s", e.what());
@@ -245,13 +251,13 @@ SystemCoroutine CSession::writerCoroutine() {
 
             // 处理发送队列中的消息
             std::shared_ptr<SendNode> nowNode = nullptr;
-            if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+            if (this->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
                 try {
-                    boost::asio::write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
+                    boost::asio::write(this->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
                 }
                 catch (const boost::system::system_error& e) {
-					LOG_ERROR("Socket error in writerCoroutine: %s (Code: %s)", e.what(), e.code().value());
-                    self->handleError(e.code(), "Writer coroutine socket error");
+					LOG_ERROR("Socket error in writerCoroutine: %s (Code: %d)", e.what(), e.code().value());
+                    this->handleError(e.code(), "Writer coroutine socket error");
                     co_return; // 发生网络错误，退出协程
                 }
                 catch (const std::exception& e) {
@@ -263,8 +269,8 @@ SystemCoroutine CSession::writerCoroutine() {
     }
     catch (const std::exception& e) {
 		LOG_ERROR("Fatal exception in writerCoroutine: %s", e.what());
-        if (self && !self->isStop.load()) {
-            self->close();
+        if (this && !this->isStop.load()) {
+            this->close();
         }
     }
 

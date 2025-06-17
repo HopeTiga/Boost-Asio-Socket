@@ -47,10 +47,10 @@ void MessageNode::clear() {
     bufferSize = 0;
     dataSource = MemorySource::NORMAL_NEW;
 
-    // 清理session引用
-    if (session) {
-        session.reset();
+    if (session!=nullptr) {
+        session = nullptr;
     }
+
 }
 
 SendNode::SendNode(const char* msg, int64_t max_length, short msgid)
@@ -147,8 +147,7 @@ void SendNode::clear() {
     bufferSize = 0;
     dataSource = MemorySource::NORMAL_NEW;
 
-    // 清理session引用
-    if (session) {
-        session.reset();
+    if (session != nullptr) {
+        session = nullptr;
     }
 }
