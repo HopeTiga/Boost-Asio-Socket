@@ -116,6 +116,8 @@ void CSession::start() {
         }
         catch (const std::exception& e) {
 			LOG_ERROR("Exception in CSession::start: %s", e.what());
+            free(headerBuffer);
+			headerBuffer = nullptr;
             self->close();
         }
 
