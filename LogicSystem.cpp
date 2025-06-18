@@ -4,7 +4,7 @@
 
 MessagePressureMetrics metrics;
 
-LogicSystem::LogicSystem(size_t minSize, size_t maxSize) :minSize(minSize), maxSize(maxSize), nowSize(minSize),isStop(false), threads(maxSize)
+LogicSystem::LogicSystem(size_t minSize, size_t maxSize) :minSize(minSize), maxSize(maxSize), nowSize(minSize), isStop(false), threads(maxSize), readyQueue(nowSize)
 ,systemCoroutines(new SystemCoroutine[maxSize]) {
 
 	registerCallBackFunction();
@@ -17,7 +17,6 @@ void LogicSystem::initializeThreads() {
 		threads.emplace_back(std::thread([this,i]() {
 			systemCoroutines[i] = processMessage(shared_from_this());
             systemCoroutines[i].handle.promise().setTargetQueue(&readyQueue);
-            systemCoroutines[i].setQueue(&readyQueue);
 			systemCoroutines[i].handle.promise().storeIndex(i);
 			}));
 	}
@@ -242,8 +241,6 @@ void LogicSystem::postMessageToQueue(std::shared_ptr<MessageNode> node) {
 	int readyIndex;
 
 	if (readyQueue.pop(readyIndex)) {
-
-        if (readyIndex < 0 || readyIndex >= nowSize.load() - 1) return;
 
 		systemCoroutines[readyIndex].handle.resume();
 
