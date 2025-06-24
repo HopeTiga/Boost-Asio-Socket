@@ -6,7 +6,7 @@
 #include "concurrentqueue.h"
 #include "SystemCoroutine.h"
 
-extern class CServer;
+class CServer;
 
 class CSession : public std::enable_shared_from_this<CSession> {
 	friend class LogicSystem;
