@@ -50,7 +50,7 @@ int main()
 	}
 	catch (std::exception& e) {
 
-		std::cout << "The Main Exception is " << e.what() << std::endl;
+		LOG_INFO("The Main Exception is %s" , e.what());
 
 		return EXIT_FAILURE;
 

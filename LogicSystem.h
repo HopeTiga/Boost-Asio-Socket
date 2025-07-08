@@ -46,7 +46,7 @@ private:
 
 	std::vector<std::thread> threads;
 
-	bool isStop;
+	std::atomic<bool> isStop;
 
 	void boostAsioTcpSocket(std::shared_ptr<CSession>,
 		const short& msg_id, const std::string& msg_data);
