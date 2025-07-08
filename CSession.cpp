@@ -11,7 +11,7 @@
 
 
 CSession::CSession(boost::asio::io_context& ioContext, CServer* cserver) :socket(ioContext)
-, context(ioContext), server(cserver), isStop(false){
+, context(ioContext), server(cserver), isStop(false),channel(context){
 
 	boost::uuids::random_generator generator;
 
@@ -30,7 +30,7 @@ CSession::~CSession() {
 
 void CSession::start() {
 
-    systemCoroutine = writerCoroutine();
+	writerCoroutineAsync(); // 使用异步版本
 
     auto self = shared_from_this();
 
@@ -160,7 +160,8 @@ void CSession::start() {
             });
 }
 
-void CSession::send(char* msg, int64_t max_length, short msgid) {
+void CSession::writeAsync(char* msg, int64_t max_length, short msgid)
+{
     try {
         // 使用新的安全获取节点方法
         //std::shared_ptr<SendNode> nowNode = NodeQueues::getInstance()->acquireSendNode(msg, max_length, msgid);
@@ -172,10 +173,8 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
 
             if (this->sendNodes.enqueue(nowNode)) {
 
-                if (!systemCoroutine.handle.promise().suspended_) {
-
-                    systemCoroutine.handle.resume();
-
+                if (channel.is_open()) {
+                    channel.try_send(boost::system::error_code{});
                 }
 
                 nowNode = nullptr;
@@ -186,26 +185,25 @@ void CSession::send(char* msg, int64_t max_length, short msgid) {
 
     }
     catch (std::exception& e) {
-		LOG_ERROR("CSession::send ERROR: %s", e.what());
+        LOG_ERROR("CSession::send ERROR: %s", e.what());
     }
 }
 
-void CSession::send(std::string msg, short msgid) {
+void CSession::writeAsync(std::string msg, short msgid)
+{
     try {
         // 使用新的安全获取节点方法
         //std::shared_ptr<SendNode> nowNode = NodeQueues::getInstance()->acquireSendNode(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
 
-		std::shared_ptr<SendNode> nowNode = std::make_shared<SendNode>(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
+        std::shared_ptr<SendNode> nowNode = std::make_shared<SendNode>(msg.c_str(), static_cast<int64_t>(msg.size()), msgid);
 
         if (nowNode) {
             // 节点已经是干净的，直接设置数据
 
             if (this->sendNodes.enqueue(nowNode)) {
 
-                if (!systemCoroutine.handle.promise().suspended_) {
-
-                    systemCoroutine.handle.resume();
-
+                if (channel.is_open()) {
+                    channel.try_send(boost::system::error_code{});
                 }
 
                 nowNode = nullptr;
@@ -215,66 +213,112 @@ void CSession::send(std::string msg, short msgid) {
         }
     }
     catch (std::exception& e) {
-		LOG_ERROR("CSession::send (std::string) ERROR: %s", e.what());
+        LOG_ERROR("CSession::send (std::string) ERROR: %s", e.what());
     }
 }
 
-// CSession.cpp 中 writerCoroutine() 方法的完整实现
+void CSession::writerCoroutineAsync()
+{
 
-SystemCoroutine CSession::writerCoroutine() {
+    auto self = shared_from_this();
 
-    try {
-        for (;;) {
-            // 等待发送队列中有数据或者会话停止
-            while (this->sendNodes.size_approx() == 0 && !this->isStop.load(std::memory_order_acquire)) {
-                co_await SystemCoroutine::Awaitable();
-            }
+    boost::asio::co_spawn(context, [self]() -> boost::asio::awaitable<void> {
+        
+        try {
+            for (;;) {
+                
+                // 等待发送队列中有数据或者会话停止
+                while (self->sendNodes.size_approx() == 0 && !self->isStop.load(std::memory_order_acquire)) {
 
-            // 如果会话已停止，处理完剩余消息后退出
-            if (this->isStop.load(std::memory_order_acquire)) {
-                // 处理队列中剩余的消息
-                while (this->sendNodes.size_approx() > 0) {
-                    std::shared_ptr<SendNode> nowNode = nullptr;
-                    if (this->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
-                        try {
-                            boost::asio::write(this->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
-  
-                        }
-                        catch (const std::exception& e) {
-							LOG_ERROR("Error sending message during shutdown: %s", e.what());
-                            break; // 发送失败，退出循环
+                    co_await self->channel.async_receive(boost::asio::use_awaitable);
+                }
+
+                // 如果会话已停止，处理完剩余消息后退出
+                if (self->isStop.load(std::memory_order_acquire)) {
+                    // 处理队列中剩余的消息
+                    while (self->sendNodes.size_approx() > 0) {
+                        std::shared_ptr<SendNode> nowNode = nullptr;
+                        if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+                            try {
+                                co_await boost::asio::async_write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize), boost::asio::use_awaitable);
+
+                            }
+                            catch (const std::exception& e) {
+                                LOG_ERROR("Error sending message during shutdown: %s", e.what());
+                                break; // 发送失败，退出循环
+                            }
                         }
                     }
+                    co_return; // 退出协程
                 }
-                co_return; // 退出协程
-            }
 
-            // 处理发送队列中的消息
-            std::shared_ptr<SendNode> nowNode = nullptr;
-            if (this->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+                // 处理发送队列中的消息
+                std::shared_ptr<SendNode> nowNode = nullptr;
+                if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+                    try {
+                        co_await boost::asio::async_write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize),boost::asio::use_awaitable);
+                    }
+                    catch (const boost::system::system_error& e) {
+                        LOG_ERROR("Socket error in writerCoroutine: %s (Code: %d)", e.what(), e.code().value());
+                        self->handleError(e.code(), "Writer coroutine socket error");
+                        co_return; // 发生网络错误，退出协程
+                    }
+                    catch (const std::exception& e) {
+                        LOG_ERROR("Exception in writerCoroutine: %s", e.what());
+                        co_return; // 发生其他异常，退出协程
+                    }
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR("Fatal exception in writerCoroutine: %s", e.what());
+            if (self && !self->isStop.load()) {
+                self->close();
+            }
+        }
+
+        co_return;
+
+		}, [this](std::exception_ptr p) {
+            if (p) {
                 try {
-                    boost::asio::write(this->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize));
+                    std::rethrow_exception(p);
                 }
                 catch (const boost::system::system_error& e) {
-					LOG_ERROR("Socket error in writerCoroutine: %s (Code: %d)", e.what(), e.code().value());
-                    this->handleError(e.code(), "Writer coroutine socket error");
-                    co_return; // 发生网络错误，退出协程
+                    // 🔧 改进：根据错误类型给出不同的日志级别
+                    if (e.code() == boost::asio::error::eof ||
+                        e.code() == boost::asio::error::connection_reset) {
+                        LOG_INFO("Client disconnected: %s, Session: %s", e.what(), sessionID.c_str());
+                    }
+                    else {
+                        LOG_ERROR("CSession coroutine error: %s (Code: %d), Session: %s",
+                            e.what(), e.code().value(), sessionID.c_str());
+                    }
+
+                    if (this && !this->isStop.load()) {
+                        this->handleError(e.code(), "Coroutine exception");
+                    }
                 }
                 catch (const std::exception& e) {
-					LOG_ERROR("Exception in writerCoroutine: %s", e.what());
-                    co_return; // 发生其他异常，退出协程
+                    LOG_ERROR("CSession coroutine std::exception: %s, Session: %s", e.what(), sessionID.c_str());
+                    if (this && !this->isStop.load()) {
+                        this->handleError(
+                            boost::system::errc::make_error_code(boost::system::errc::owner_dead),
+                            "std::exception in coroutine"
+                        );
+                    }
+                }
+                catch (...) {
+                    LOG_ERROR("CSession coroutine unknown exception, Session: %s", sessionID.c_str());
+                    if (this && !this->isStop.load()) {
+                        this->handleError(
+                            boost::system::errc::make_error_code(boost::system::errc::owner_dead),
+                            "Unknown exception in coroutine"
+                        );
+                    }
                 }
             }
-        }
-    }
-    catch (const std::exception& e) {
-		LOG_ERROR("Fatal exception in writerCoroutine: %s", e.what());
-        if (this && !this->isStop.load()) {
-            this->close();
-        }
-    }
-
-    co_return;
+            });
 }
 
 

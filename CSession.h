@@ -3,6 +3,7 @@
 #include "MessageNodes.h"
 #include <boost/asio.hpp>
 #include <boost/lockfree/queue.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include "concurrentqueue.h"
 #include "SystemCoroutine.h"
 
@@ -20,15 +21,15 @@ public:
 
 	std::string getSessionId();
 
-	void send(char* msg, int64_t max_length, short msgid);
+	void writeAsync(char* msg, int64_t max_length, short msgid);
 
-	void send(std::string msg, short msgid);
+	void writeAsync(std::string msg, short msgid);
 
 	void close();
 
 private:
 
-	SystemCoroutine writerCoroutine();
+	void writerCoroutineAsync(); //使用boost::asio::awaitable和boost::asio::co_spawn的协程 生产者与消费者模式
 
 	boost::asio::ip::tcp::socket socket;
 
@@ -40,7 +41,7 @@ private:
 
 	std::atomic<bool> isStop;
 
-	SystemCoroutine systemCoroutine;
+	boost::asio::experimental::channel<void(boost::system::error_code)> channel;
 
 	moodycamel::ConcurrentQueue<std::shared_ptr<SendNode>> sendNodes{ 1 };
 

@@ -7,26 +7,6 @@
 #include "SystemCoroutine.h"
 #include "Singleton.h"
 
-struct MessagePressureMetrics {
-	std::atomic<size_t> pendingMessages{ 0 };        // 待处理消息计数
-	std::atomic<size_t> totalProcessed{ 0 };         // 总处理消息数
-	std::atomic<size_t> busyCoroutines{ std::thread::hardware_concurrency() * 2 };         // 忙碌的协程数
-	std::atomic<double> avgProcessingTime{ 0.0 };    // 平均处理时间(毫秒)
-	std::atomic<size_t> totalProcessingTime{ 0 };    // 峰值待处理消息数
-
-	// 计算压力指标
-	double getMessagePressure(size_t totalCoroutines) const {
-		if (totalCoroutines == 0) return 0.0;
-
-		// 基于多个维度计算压力
-		double pendingPressure = static_cast<double>(pendingMessages.load()) / (totalCoroutines * 3000); // 假设每个协程能缓冲5个消息
-		double busyRatio = static_cast<double>(busyCoroutines.load()) / totalCoroutines;
-		double timePressure = std::min(1.0, avgProcessingTime.load() / 10.0); // 10ms为基准
-
-		// 综合压力指标
-		return std::min(1.0, (pendingPressure * 0.5 + busyRatio * 0.3 + timePressure * 0.2));
-	}
-};
 
 class LogicSystem : public Singleton<LogicSystem>, public std::enable_shared_from_this<LogicSystem>
 {
@@ -84,6 +64,8 @@ private:
 	std::chrono::milliseconds updateInterval{ 10000 };
 
 	boost::lockfree::queue<int> readyQueue;
+
+	std::atomic<int> pressuresCount{ 0 };
 
 };
 
