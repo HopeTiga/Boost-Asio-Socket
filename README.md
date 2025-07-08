@@ -128,7 +128,7 @@ callBackFunctions[1001] = std::bind(&LogicSystem::handleMessage,
 ### 发送消息
 ```cpp
 // 通过会话发送消息
-session->send("Hello, Client!", 1001);
+session->writeAsync("Hello, Client!", 1001);
 ```
 
 ### 系统监控
