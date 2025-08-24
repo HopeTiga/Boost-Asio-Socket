@@ -2,26 +2,109 @@
 #include <chrono>
 #include "Utils.h"
 
-LogicSystem::LogicSystem(size_t minSize, size_t maxSize) :minSize(minSize), maxSize(maxSize), nowSize(minSize), isStop(false), threads(maxSize), readyQueue(nowSize)
-,systemCoroutines(new SystemCoroutine[maxSize]) {
-
+LogicSystem::LogicSystem(size_t minSize, size_t maxSize) :minSize(minSize), maxSize(maxSize), nowSize(minSize), isStop(false), threads(maxSize), readyQueue(nowSize),ioContexts(nowSize),works(nowSize), channels(nowSize)
+ {
 	registerCallBackFunction();
 
 }
 
 void LogicSystem::initializeThreads() {
-	
-	for (int i = 0; i < nowSize; i++) {
-		threads.emplace_back(std::thread([this,i]() {
 
-			systemCoroutines[i] = processMessage(shared_from_this());
+    for (int i = 0; i < nowSize; i++) {
 
-            systemCoroutines[i].handle.promise().setTargetQueue(&readyQueue);
+        auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+            boost::asio::make_work_guard(ioContexts[i])
+        );
 
-			systemCoroutines[i].handle.promise().storeIndex(i);
+        works[i] = std::move(work);
 
-			}));
-	}
+        threads[i] = std::move(std::thread([this, i]() {
+            ioContexts[i].run();
+            }));
+
+        channels[i] = std::make_unique<boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>>(ioContexts[i], 1);
+
+    }
+
+    for (int i = 0; i < nowSize; i++) {
+
+		auto self = shared_from_this();
+
+        boost::asio::co_spawn(ioContexts[i], [self,i]() -> boost::asio::awaitable<void> {
+
+            for (;;) {
+
+                std::shared_ptr<MessageNode> nowNode = nullptr;
+
+                while (self->messageNodes.try_dequeue(nowNode)) {
+
+                    if (nowNode != nullptr && nowNode->session != nullptr) {
+
+                        if (self->callBackFunctions.find(nowNode->id) == self->callBackFunctions.end()) {
+
+                            LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
+
+                        }
+                        else {
+
+                            self->callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
+
+                        }
+
+                    }
+                }
+
+                if (!self->isStop) {
+
+					self->readyQueue.push(i);
+
+                    co_await self->channels[i]->async_receive(boost::asio::use_awaitable);
+                }
+                else {
+
+                    std::shared_ptr<MessageNode> nowNode = nullptr;
+
+                    while (self->messageNodes.try_dequeue(nowNode)) {
+
+                        if (nowNode != nullptr && nowNode->session != nullptr) {
+
+                            if (self->callBackFunctions.find(nowNode->id) == self->callBackFunctions.end()) {
+
+                                LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
+
+                            }
+                            else {
+
+                                self->callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
+
+                            }
+
+                            nowNode = nullptr;
+
+                        }
+                    }
+                    co_return;
+
+                }
+
+            }
+
+            co_return;
+
+            }, [this](std::exception_ptr p) {
+                if (p) {
+                    try {
+
+                        std::rethrow_exception(p);
+
+                    }
+                    catch (const std::exception& e) {
+
+                        LOG_ERROR("LogicSystem coroutine std::exception: %s", e.what());
+                    }
+                }
+                });
+    }
 
 	metricsThread = std::move(std::thread([this]() {
 		
@@ -34,8 +117,6 @@ void LogicSystem::initializeThreads() {
 			LOG_INFO("LogicSystem: Message Pressure: %0.2f", pressuresCount.load());
 
 			if (pressuresCount > 3) {
-
-				std::lock_guard<std::mutex> lock(mutexs);
 
 				if (this->nowSize == this->maxSize) {
 
@@ -72,8 +153,6 @@ LogicSystem::~LogicSystem() {
 
 	isStop = true;
 
-	condition.notify_all();
-
 	for (auto& thread : threads) {
 
 		if (thread.joinable()) {
@@ -83,73 +162,8 @@ LogicSystem::~LogicSystem() {
 		}
 	}
 
-	if (systemCoroutines != nullptr) {
-
-		delete[] systemCoroutines;
-
-		systemCoroutines = nullptr;
-
-	}
-
 }
 
-SystemCoroutine LogicSystem::processMessage(std::shared_ptr<LogicSystem> logicSystem) {
-    for (;;) {
-
-        while (logicSystem->messageNodes.size_approx() == 0 && !isStop) {
-		
-            co_await SystemCoroutine::Awaitable();
-
-        }
-
-        if (isStop) {
-
-            while (!logicSystem->messageNodes.size_approx() == 0) {
-
-                std::shared_ptr<MessageNode> nowNode = nullptr;
-
-                logicSystem->messageNodes.try_dequeue(nowNode);
-
-                if (nowNode != nullptr && nowNode->session!=nullptr) {
-                  
-                    if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
-
-						LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
-
-                        }
-                    else {
-  
-                        callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
-
-                    }
-
-                }
-            }
-            co_return;
-        }
-
-        std::shared_ptr<MessageNode> nowNode = nullptr;
-
-        logicSystem->messageNodes.try_dequeue(nowNode);
-
-        if (nowNode != nullptr && nowNode->session != nullptr) {
-
-            if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
-
-                LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
-
-            }
-            else {
-
-                callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
-
-            }
-
-        }
-    }
-
-    co_return;
-}
 
 void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSystem) {
     // 记录最后活动时间，初始为当前时间
@@ -162,73 +176,71 @@ void LogicSystem::processMessageTemporary(std::shared_ptr<LogicSystem> logicSyst
     for (;;) {
         // 检查停止标志
         if (isStop) {
-            // 处理完剩余所有消息后退出
-            while (logicSystem->messageNodes.size_approx() > 0) {
 
-                std::shared_ptr<MessageNode> nowNode = nullptr;
-
-                if (logicSystem->messageNodes.try_dequeue(nowNode)) {
-
-                    if (nowNode != nullptr && nowNode->session != nullptr) {
-
-                        if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
-
-                            LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
-
-                        }
-                        else {
-
-                            callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
-
-
-                        }
-                    }
-                }
-
-                this->nowSize.fetch_sub(1);
-
-                return;
-            }
-            // 尝试从队列中获取消息
             std::shared_ptr<MessageNode> nowNode = nullptr;
-
-            if (logicSystem->messageNodes.try_dequeue(nowNode)) {
-                // 成功获取到消息，更新最后活动时间
-                lastActivityTime = std::chrono::steady_clock::now();
+            // 处理完剩余所有消息后退出
+            while (logicSystem->messageNodes.try_dequeue(nowNode)) {
 
                 if (nowNode != nullptr && nowNode->session != nullptr) {
 
                     if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
 
                         LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
+
                     }
                     else {
 
                         callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
 
-                        long long end = std::chrono::floor<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now()
-                        ).time_since_epoch().count();
 
                     }
                 }
+
+                nowNode = nullptr;
+
+                this->nowSize.fetch_sub(1);
+
+                return;
             }
-            else {
-                // 队列为空，检查是否已经空闲超过60秒
-                auto currentTime = std::chrono::steady_clock::now();
+            // 尝试从队列中获取消息
+            
+        }
 
-                auto idleDuration = currentTime - lastActivityTime;
+        std::shared_ptr<MessageNode> nowNode = nullptr;
 
-                if (idleDuration >= idleTimeout) {
-                    // 空闲时间超过60秒，退出
-                    this->nowSize.fetch_sub(1);
+        while (logicSystem->messageNodes.try_dequeue(nowNode)) {
+            // 成功获取到消息，更新最后活动时间
+            lastActivityTime = std::chrono::steady_clock::now();
 
-                    return;
+            if (nowNode != nullptr && nowNode->session != nullptr) {
+
+                if (callBackFunctions.find(nowNode->id) == callBackFunctions.end()) {
+
+                    LOG_WARNING("The MessageID %u has no corresponding CallBackFunctions", nowNode->id);
                 }
-                // 短暂休眠，避免忙等待
-                std::this_thread::sleep_for(checkInterval);
+                else {
+
+                    callBackFunctions[nowNode->id](nowNode->session, nowNode->id, nowNode->data);
+
+                    long long end = std::chrono::floor<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now()
+                    ).time_since_epoch().count();
+
+                }
             }
         }
+        
+        auto currentTime = std::chrono::steady_clock::now();
+
+        auto idleDuration = currentTime - lastActivityTime;
+
+        if (idleDuration >= idleTimeout) {
+            // 空闲时间超过60秒，退出
+            this->nowSize.fetch_sub(1);
+
+            return;
+        }
+
     }
 }
 
@@ -236,11 +248,13 @@ void LogicSystem::postMessageToQueue(std::shared_ptr<MessageNode> node) {
 
 	messageNodes.enqueue(node);
 
-	int readyIndex;
+	int readyIndex = -1;
 
 	if (readyQueue.pop(readyIndex)) {
 
-		systemCoroutines[readyIndex].handle.resume();
+        if (readyIndex == -1) return;
+
+        channels[readyIndex]->try_send(boost::system::error_code{});
 
 	}
 

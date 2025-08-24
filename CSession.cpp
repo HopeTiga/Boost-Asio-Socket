@@ -11,7 +11,7 @@
 
 
 CSession::CSession(boost::asio::io_context& ioContext, CServer* cserver) :socket(ioContext)
-, context(ioContext), server(cserver), isStop(false),channel(context){
+, context(ioContext), server(cserver), isStop(false), writeChannel(ioContext, 1) {
 
 	boost::uuids::random_generator generator;
 
@@ -213,11 +213,7 @@ void CSession::writeAsync(char* msg, int64_t max_length, short msgid)
 
             if (this->sendNodes.enqueue(nowNode)) {
 
-                if (channel.is_open()) {
-
-                    channel.try_send(boost::system::error_code{});
-
-                }
+                writeChannel.try_send(boost::system::error_code{});
 
                 nowNode = nullptr;
 
@@ -243,11 +239,7 @@ void CSession::writeAsync(std::string msg, short msgid)
 
             if (this->sendNodes.enqueue(nowNode)) {
 
-                if (channel.is_open()) {
-
-                    channel.try_send(boost::system::error_code{});
-
-                }
+                writeChannel.try_send(boost::system::error_code{});
 
                 nowNode = nullptr;
 
@@ -269,78 +261,42 @@ void CSession::writerCoroutineAsync()
 
     boost::asio::co_spawn(context, [self]() -> boost::asio::awaitable<void> {
         
-        try {
+        for (;;) {
 
-            for (;;) {
-                
-                while (self->sendNodes.size_approx() == 0 && !self->isStop.load()) {
+            std::shared_ptr<SendNode> nowNode = nullptr;
 
-                    co_await self->channel.async_receive(boost::asio::use_awaitable);
+            while (self->sendNodes.try_dequeue(nowNode)) {
 
-                }
+                if (nowNode != nullptr) {
 
-                if (self->isStop.load()) {
-
-                    while (self->sendNodes.size_approx() > 0) {
-
-                        std::shared_ptr<SendNode> nowNode = nullptr;
-
-                        if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
-                            try {
-
-                                co_await boost::asio::async_write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize), boost::asio::use_awaitable);
-
-                            }
-                            catch (const std::exception& e) {
-
-                                LOG_ERROR("Error sending message during shutdown: %s", e.what());
-
-                                break; // 发送失败，退出循环
-
-                            }
-                        }
-                    }
-
-                    co_return; // 退出协程
+                    co_await boost::asio::async_write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize), boost::asio::use_awaitable);
 
                 }
 
+                nowNode = nullptr;
+
+            }
+            
+            if(!self->isStop.load()) {
+
+                co_await self->writeChannel.async_receive(boost::asio::use_awaitable);
+
+            }
+            else {
                 std::shared_ptr<SendNode> nowNode = nullptr;
 
-                if (self->sendNodes.try_dequeue(nowNode) && nowNode != nullptr) {
+                while (self->sendNodes.try_dequeue(nowNode)) {
 
-                    try {
+                    if (nowNode != nullptr) {
 
-                        co_await boost::asio::async_write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize),boost::asio::use_awaitable);
-
-                    }
-                    catch (const boost::system::system_error& e) {
-
-                        LOG_ERROR("Socket error in writerCoroutine: %s (Code: %d)", e.what(), e.code().value());
-
-                        self->handleError(e.code(), "Writer coroutine socket error");
-
-                        co_return;
-                    
-                    }
-                    catch (const std::exception& e) {
-
-                        LOG_ERROR("Exception in writerCoroutine: %s", e.what());
-
-                        co_return;
+                        co_await boost::asio::async_write(self->socket, boost::asio::buffer(nowNode->data, nowNode->bufferSize), boost::asio::use_awaitable);
 
                     }
+
+                    nowNode = nullptr;
                 }
-            }
-        }
-        catch (const std::exception& e) {
 
-            LOG_ERROR("Fatal exception in writerCoroutine: %s", e.what());
-
-            if (self && !self->isStop.load()) {
-
-                self->close();
-
+                co_return; // 退出协程
             }
         }
 

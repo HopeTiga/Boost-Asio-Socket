@@ -2,9 +2,9 @@
 #include "const.h"
 #include "MessageNodes.h"
 #include "CSession.h"
+#include <boost/asio.hpp>
 #include <boost/lockfree/queue.hpp>
 #include "concurrentqueue.h"
-#include "SystemCoroutine.h"
 #include "Singleton.h"
 
 
@@ -31,18 +31,12 @@ private:
 
 	LogicSystem(size_t minSize = std::thread::hardware_concurrency() * 2, size_t maxSize = std::thread::hardware_concurrency() * 4);
 
-	SystemCoroutine processMessage(std::shared_ptr<LogicSystem> logicSystem);
-
 	void processMessageTemporary(std::shared_ptr<LogicSystem> logicSystem);
-
-	std::mutex mutexs;
 
 	moodycamel::ConcurrentQueue<std::shared_ptr<MessageNode>> messageNodes;
 
 	std::map<short, std::function<void(std::shared_ptr<CSession>,
 		const short& msg_id, const std::string& msg_data)>> callBackFunctions;
-
-	std::condition_variable condition;
 
 	std::vector<std::thread> threads;
 
@@ -50,8 +44,6 @@ private:
 
 	void boostAsioTcpSocket(std::shared_ptr<CSession>,
 		const short& msg_id, const std::string& msg_data);
-
-	SystemCoroutine* systemCoroutines;
 
 	size_t minSize;
 
@@ -63,9 +55,15 @@ private:
 
 	std::chrono::milliseconds updateInterval{ 10000 };
 
+	std::atomic<int> pressuresCount{ 0 };
+
+	std::vector<boost::asio::io_context> ioContexts;
+
+	std::vector<std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>> works;
+
 	boost::lockfree::queue<int> readyQueue;
 
-	std::atomic<int> pressuresCount{ 0 };
+	std::vector<std::unique_ptr<boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>>> channels;
 
 };
 

@@ -2,10 +2,8 @@
 #include "const.h"
 #include "MessageNodes.h"
 #include <boost/asio.hpp>
-#include <boost/lockfree/queue.hpp>
-#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/experimental/concurrent_channel.hpp>
 #include "concurrentqueue.h"
-#include "SystemCoroutine.h"
 
 class CServer;
 
@@ -25,11 +23,17 @@ public:
 
 	void writeAsync(std::string msg, short msgid);
 
+	void start();
+
 	void close();
 
 private:
 
 	void writerCoroutineAsync(); //使用boost::asio::awaitable和boost::asio::co_spawn的协程 生产者与消费者模式
+
+	void handleError(const boost::system::error_code& error, const std::string& context);
+
+private:
 
 	boost::asio::ip::tcp::socket socket;
 
@@ -41,15 +45,12 @@ private:
 
 	std::atomic<bool> isStop;
 
-	boost::asio::experimental::channel<void(boost::system::error_code)> channel;
-
 	moodycamel::ConcurrentQueue<std::shared_ptr<SendNode>> sendNodes{ 1 };
-
-	void start();
 
 	std::mutex mutexs;
 
-	void handleError(const boost::system::error_code& error, const std::string& context);
+	boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writeChannel;
+
 
 };
 
